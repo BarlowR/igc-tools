@@ -27,6 +27,7 @@ class IGCLog:
             self.fixes.append(parse_bfix(fix))
 
         self.dataframe = pd.DataFrame.from_dict([bfix.to_dict() for bfix in self.fixes])
+            
 
     def build_computed_metrics(self):
         self.dataframe["time_pandas"] = pd.to_datetime(self.dataframe["time_iso"], format="%H:%M:%S")

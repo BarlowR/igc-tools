@@ -92,6 +92,21 @@ def parse_bfix(line: str):
     fix.gnss_altitude = int(line[30:35])
     return fix
 
+def replace_gps_with_baro(line: str):
+    # pressure altitude
+    pressure_altitude = line[25:30]
+
+    # gps altitude replacement
+    new_line = line[:30] + pressure_altitude + line[35:]
+    return new_line
 
 
-    
+def fix_robs_gps_issues(igc_file: str, new_igc_file: str = None):
+    if new_igc_file is None:
+        new_igc_file = igc_file[:-4] + "_fixed" + igc_file[-4:]
+    with open(igc_file, "r") as igc_file_lines, open(new_igc_file, "w+") as new_igc_file_lines:
+        for line in igc_file_lines:
+            if line[0] == "B":
+                new_igc_file_lines.write(replace_gps_with_baro(line))
+                continue
+            new_igc_file_lines.write(line)
