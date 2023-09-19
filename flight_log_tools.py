@@ -46,9 +46,7 @@ class IGCLog:
         
         # remove intermediaries 
         self.dataframe.drop(columns=['pressure_altitude_delta', 'gnss_altitude_delta'])
-        print(self.dataframe.columns)
-        
-        print(self.dataframe)
+        # print(self.dataframe.columns)
 
 
     
