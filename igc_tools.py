@@ -68,6 +68,10 @@ def ingest_igc_file(igc_file: str):
                         continue
                     if line[0] == "L":
                         continue
+                    if line[0] == "F":
+                        continue
+                    if line[0] == "K":
+                        continue
                     contents = False
                     footer = True
                     footer_lines.append(line)
