@@ -14,6 +14,9 @@ Or:
 python3 xctsk_tools.py --in_file="<your_xctsk_filepath>.xctsk" --out_file="<your_kml_output_filepath>"
 ```
 
+![vs](./assets/task.png)
+
+
 ## .igc Files
 See igc_review.ipynb for examples
 
