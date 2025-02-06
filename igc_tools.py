@@ -233,7 +233,7 @@ class IGCLog:
         self.dataframe["speed_kmh"] = self.dataframe["speed_ms"] * MS_TO_KMH
         self.dataframe["speed_kmh_average"] = self.dataframe["speed_ms"].rolling(20, center=True).mean() * MS_TO_KMH
         self.dataframe["glide"] = self.dataframe["speed_ms"] / -self.dataframe["vertical_speed_gnss_average_ms"]
-        self.dataframe["glide"][self.dataframe["vertical_speed_gnss_average_ms"] > -0.4] = np.nan
+        self.dataframe.loc[(self.dataframe["vertical_speed_gnss_average_ms"] > -0.4), "glide"] = np.nan
 
         self.dataframe["glide_60s"] = self.dataframe["glide"].rolling(120, center=True, min_periods=30).mean()
         # remove intermediaries
