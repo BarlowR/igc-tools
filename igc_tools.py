@@ -1,12 +1,12 @@
 import pandas as pd
 import numpy as np
-import dateutil.parser.isoparser as isoparser
 from dataclasses import dataclass
 import datetime
 import gpxpy
 import os
 from simplekml import Kml, Color
 from copy import deepcopy
+import argparse
 
 
 import igc_tools
@@ -14,6 +14,9 @@ import math_utils
 
 MS_TO_KMH = 3.6
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--in_file', type=str, required=True)
+parser.add_argument('--out_file', type=str, required=False)
 
 @dataclass
 class BFix:
@@ -305,3 +308,22 @@ class IGCLog:
 
         self.export_kml_line(f"{file_prefix}_speed.kml", "Speed", prefix=file_prefix, visibility=False)
         self.export_kml_line(f"{file_prefix}_vertical_speed.kml", "VerticalSpeed", prefix=file_prefix)
+
+
+
+if __name__ == "__main__":
+    args = parser.parse_args()
+
+    in_file = args.in_file
+    out_file = args.out_file
+
+    # Make the output file name the same as the input if none is given
+    if not out_file:
+        out_file = in_file[:-6]
+
+    # strip the ".kml" if it is passed in the string
+    elif out_file[-4:] == ".kml":
+        out_file = out_file[:-4]
+
+    flight_log = igc_tools.IGCLog(in_file)
+    flight_log.export_tracks(f"{out_file}")

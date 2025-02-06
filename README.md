@@ -18,6 +18,16 @@ python3 xctsk_tools.py --in_file="<your_xctsk_filepath>.xctsk" --out_file="<your
 
 
 ## .igc Files
+Run the following from the command line:
+```
+python3 igc_tools.py --in_file="<your_igc_file>.igc"
+```
+Or:
+```
+python3 igc_tools.py --in_file="<your_igc_filepath>.igc" --out_file="<your_kml_output_filepath>"
+```
+
+
 See igc_review.ipynb for examples
 
 ### Load IGC to Pandas Dataframe with key metrics calculated (Speed, Vertical Speed, Glide, Altidude, etc.)
