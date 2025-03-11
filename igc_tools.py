@@ -16,7 +16,8 @@ MS_TO_KMH = 3.6
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--in_file', type=str, required=True)
-parser.add_argument('--out_file', type=str, required=False)
+parser.add_argument('--out_file', type=str, required=False, default="")
+parser.add_argument('--use_name', action='store_true', required=False)
 
 @dataclass
 class BFix:
@@ -86,45 +87,6 @@ def ingest_igc_file(igc_file: str):
     return (header_lines, content_lines, footer_lines)
 
 
-def parse_bfix(line: str):
-    """Parse a b fix line to a BFix object
-    See https://xp-soaring.github.io/igc_file_format/igc_format_2008.html#link_4.1
-    Spec:    B HHMMSS DDMMmmmN DDDMMmmmE V PPPPP GGGGG CK
-    Example: B 235531 3440751N 11955269W A 00690 00732 54
-    """
-
-    fix = BFix()
-    assert line[0] == "B"
-
-    # parse time to datetime
-    hour = int(line[1:3])
-    min = int(line[3:5])
-    sec = int(line[5:7])
-    fix.time = datetime.time(hour=hour, minute=min, second=sec)
-
-    # pull latitude
-    lat_degrees = int(line[7:9])
-    lat_minutes = int(line[9:14]) / 1000
-    north = line[14] == "N"
-    fix.lat = lat_degrees + lat_minutes / 60
-    fix.lat *= 1 if north else -1
-
-    # pull longitude
-    lon_degrees = int(line[15:18])
-    lon_minutes = int(line[18:23]) / 1000
-
-    east = line[23] == "E"
-    fix.lon = lon_degrees + lon_minutes / 60
-    fix.lon *= 1 if east else -1
-    fix.fix_validity = line[24]
-
-    # pressure altitude
-    fix.pressure_altitude_m = int(line[25:30])
-    # gps altitude
-    fix.gnss_altitude_m = int(line[30:35])
-    return fix
-
-
 def kml_color_gradient_generator(a, r, g, b):
     """Takes in alpha, red, green and blue values between 0-1 and returns a KML color string"""
     return "%02x%02x%02x%02x" % (int(a * 255), int(b * 255), int(g * 255), int(r * 255))
@@ -191,6 +153,8 @@ class IGCLog:
     fixes: None
     start_time: datetime.datetime = None
     dataframe: pd.DataFrame = None
+    last_hour = None
+    pilot_name = None
 
     def __init__(self, file_path: str):
         """Build an IGCLog file from a given file path"""
@@ -203,12 +167,27 @@ class IGCLog:
         self.fixes = []
         self.header_info, fixes_list, self.footer_info = igc_tools.ingest_igc_file(self.file_path)
 
+        for header in self.header_info: 
+            if (header[0:5] == "HFDTE"):
+                # HFDTE050225
+                # or HFDTEDATE:080624,01
+
+                date_string = ""
+                if (header.find("DATE:") != -1):
+                    date_string = header.split(":")[1][:6]
+                else: 
+                    date_string = header[5:]
+                self.day = datetime.datetime.strptime(date_string, "%d%m%y")
+            if (header[0:10] == "HFPLTPILOT"):
+                # HFPLTPILOT:Robert Barlow
+                self.pilot_name = header.split(":")[1]
+
         for fix in fixes_list:
-            self.fixes.append(igc_tools.parse_bfix(fix))
+            self.fixes.append(self.parse_bfix(fix))
         self.dataframe = pd.DataFrame.from_dict([bfix.to_dict() for bfix in self.fixes])
 
     def build_computed_metrics(self):
-        self.dataframe["time_pandas"] = pd.to_datetime(self.dataframe["time_iso"], format="%H:%M:%S")
+        self.dataframe["time_pandas"] = pd.to_datetime(self.dataframe["time_iso"], format="%Y-%m-%dT%H:%M:%S")
 
         self.dataframe["seconds_delta"] = self.dataframe["time_pandas"].diff().dt.total_seconds()
         self.dataframe = self.dataframe[self.dataframe["seconds_delta"] > 0]
@@ -274,6 +253,7 @@ class IGCLog:
             longitude = row["lon"]
             latitude = row["lat"]
             altitude = row["gnss_altitude_m"]
+            time = row["time_iso"]
             if init == False:
                 init = True
                 last_point = [longitude, latitude, altitude]
@@ -282,6 +262,8 @@ class IGCLog:
             ls = multipnt.newlinestring(coords=[current_point, last_point], altitudemode="absolute")
 
             ls.style.linestyle.width = 2
+            ls.timestamp.when = time
+
 
             if track_type == "Speed":
                 norm_val = math_utils.three_point_normalizer(row["speed_kmh_average"], 20, 35, 55)
@@ -309,6 +291,51 @@ class IGCLog:
         self.export_kml_line(f"{file_prefix}_speed.kml", "Speed", prefix=file_prefix, visibility=False)
         self.export_kml_line(f"{file_prefix}_vertical_speed.kml", "VerticalSpeed", prefix=file_prefix)
 
+    def parse_bfix(self, line: str):
+        """Parse a b fix line to a BFix object
+        See https://xp-soaring.github.io/igc_file_format/igc_format_2008.html#link_4.1
+        Spec:    B HHMMSS DDMMmmmN DDDMMmmmE V PPPPP GGGGG CK
+        Example: B 235531 3440751N 11955269W A 00690 00732 54
+        """
+
+        fix = BFix()
+        assert line[0] == "B"
+
+        # parse time to datetime
+        # TODO: strptime
+        hour = int(line[1:3])
+        min = int(line[3:5])
+        sec = int(line[5:7])
+        # Check for day rollover
+        if (self.last_hour == 23 and hour == 0):
+            self.day += datetime.timedelta(days= 1)
+
+        self.last_hour = hour
+        fix.time = datetime.datetime.combine(self.day, datetime.time(hour=hour, minute=min, second=sec))
+
+        # pull latitude
+        lat_degrees = int(line[7:9])
+        lat_minutes = int(line[9:14]) / 1000
+        north = line[14] == "N"
+        fix.lat = lat_degrees + lat_minutes / 60
+        fix.lat *= 1 if north else -1
+
+        # pull longitude
+        lon_degrees = int(line[15:18])
+        lon_minutes = int(line[18:23]) / 1000
+
+        east = line[23] == "E"
+        fix.lon = lon_degrees + lon_minutes / 60
+        fix.lon *= 1 if east else -1
+        fix.fix_validity = line[24]
+
+        # pressure altitude
+        fix.pressure_altitude_m = int(line[25:30])
+        # gps altitude
+        fix.gnss_altitude_m = int(line[30:35])
+        return fix
+
+
 
 
 if __name__ == "__main__":
@@ -316,14 +343,26 @@ if __name__ == "__main__":
 
     in_file = args.in_file
     out_file = args.out_file
-
-    # Make the output file name the same as the input if none is given
-    if not out_file:
-        out_file = in_file[:-6]
+    use_name = args.use_name
 
     # strip the ".kml" if it is passed in the string
-    elif out_file[-4:] == ".kml":
+    if out_file[-4:] == ".kml":
         out_file = out_file[:-4]
 
     flight_log = igc_tools.IGCLog(in_file)
+    if (use_name):
+        if flight_log.pilot_name == None:
+            print("No pilot name found in file, using default filename")
+        else: 
+            in_dir = os.path.dirname(in_file)
+            prefix = f"{in_dir}/{out_file}"
+            if (out_file != ""):
+                prefix += "_"
+            prefix += flight_log.pilot_name.lower().replace(" ", "_")
+            flight_log.export_tracks(f"{prefix}")
+            exit()
+    
+    # Make the output file name the same as the input if none is given
+    if not out_file:
+        out_file = in_file[:-4]
     flight_log.export_tracks(f"{out_file}")
