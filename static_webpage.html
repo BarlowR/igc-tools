@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IGC Flight Log Analyzer</title>
+</head>
+<body>
+    <h1>IGC Flight Log Analyzer</h1>
+    
+    <input type="file" id="fileInput" accept=".igc" />
+    <button id="processBtn" onclick="processFile()" disabled>Process Flight</button>
+    
+    <div id="output"></div>
+
+    <script>
+        class BFix {
+            constructor() {
+                this.time = new Date();
+                this.lat = 0;
+                this.lon = 0;
+                this.fix_validity = "";
+                this.pressure_altitude_m = 0;
+                this.gnss_altitude_m = 0;
+            }
+            
+            toDict() {
+                return {
+                    time: this.time,
+                    time_iso: this.time.toISOString(),
+                    lat: this.lat,
+                    lon: this.lon,
+                    fix_validity: this.fix_validity,
+                    pressure_altitude_m: this.pressure_altitude_m,
+                    gnss_altitude_m: this.gnss_altitude_m
+                };
+            }
+        }
+        
+        class IGCLog {
+            constructor(fileContent, fileName) {
+                this.fileName = fileName;
+                this.header_info = [];
+                this.footer_info = [];
+                this.fixes = [];
+                this.start_time = null;
+                this.dataframe = [];
+                this.last_hour = null;
+                this.pilot_name = null;
+                this.day = new Date();
+                
+                this.loadFromContent(fileContent);
+                this.buildComputedMetrics();
+            }
+            
+            loadFromContent(content) {
+                const lines = content.split('\n').map(line => line.trim()).filter(line => line);
+                let header = true;
+                let contents = false;
+                
+                const contentLines = [];
+                
+                for (const line of lines) {
+                    if (header) {
+                        this.header_info.push(line);
+                        if (line[0] === 'B') {
+                            contentLines.push(line);
+                            header = false;
+                            contents = true;
+                        }
+                        continue;
+                    }
+                    
+                    if (contents) {
+                        if (line[0] !== 'B') {
+                            if (['E', 'L', 'F', 'K'].includes(line[0])) {
+                                continue;
+                            }
+                            contents = false;
+                            this.footer_info.push(line);
+                            continue;
+                        }
+                        contentLines.push(line);
+                        continue;
+                    }
+                    
+                    this.footer_info.push(line);
+                }
+                
+                // Parse header info
+                for (const header of this.header_info) {
+                    if (header.startsWith('HFDTE')) {
+                        let dateString = "";
+                        if (header.includes('DATE:')) {
+                            dateString = header.split(':')[1].substring(0, 6);
+                        } else {
+                            dateString = header.substring(5);
+                        }
+                        this.day = this.parseDate(dateString);
+                    }
+                    if (header.startsWith('HFPLTPILOT')) {
+                        this.pilot_name = header.split(':')[1];
+                    }
+                }
+                
+                // Parse fixes
+                for (const fix of contentLines) {
+                    this.fixes.push(this.parseBFix(fix));
+                }
+                
+                this.dataframe = this.fixes.map(fix => fix.toDict());
+            }
+            
+            parseDate(dateString) {
+                // Format: DDMMYY
+                const day = parseInt(dateString.substring(0, 2));
+                const month = parseInt(dateString.substring(2, 4)) - 1; // Month is 0-indexed
+                const year = 2000 + parseInt(dateString.substring(4, 6));
+                return new Date(year, month, day);
+            }
+            
+            parseBFix(line) {
+                const fix = new BFix();
+                
+                // Parse time
+                const hour = parseInt(line.substring(1, 3));
+                const min = parseInt(line.substring(3, 5));
+                const sec = parseInt(line.substring(5, 7));
+                
+                // Check for day rollover
+                if (this.last_hour === 23 && hour === 0) {
+                    this.day.setDate(this.day.getDate() + 1);
+                }
+                this.last_hour = hour;
+                
+                fix.time = new Date(this.day);
+                fix.time.setHours(hour, min, sec, 0);
+                
+                // Parse latitude
+                const lat_degrees = parseInt(line.substring(7, 9));
+                const lat_minutes = parseInt(line.substring(9, 14)) / 1000;
+                const north = line[14] === 'N';
+                fix.lat = lat_degrees + lat_minutes / 60;
+                fix.lat *= north ? 1 : -1;
+                
+                // Parse longitude
+                const lon_degrees = parseInt(line.substring(15, 18));
+                const lon_minutes = parseInt(line.substring(18, 23)) / 1000;
+                const east = line[23] === 'E';
+                fix.lon = lon_degrees + lon_minutes / 60;
+                fix.lon *= east ? 1 : -1;
+                
+                fix.fix_validity = line[24];
+                fix.pressure_altitude_m = parseInt(line.substring(25, 30));
+                fix.gnss_altitude_m = parseInt(line.substring(30, 35));
+                
+                return fix;
+            }
+            
+            buildComputedMetrics() {
+                for (let i = 1; i < this.dataframe.length; i++) {
+                    const current = this.dataframe[i];
+                    const previous = this.dataframe[i - 1];
+                    
+                    // Time delta
+                    const timeDelta = (new Date(current.time) - new Date(previous.time)) / 1000;
+                    current.seconds_delta = timeDelta;
+                    
+                    if (timeDelta <= 0) continue;
+                    
+                    // Altitude deltas
+                    current.pressure_altitude_m_delta = current.pressure_altitude_m - previous.pressure_altitude_m;
+                    current.gnss_altitude_m_delta = current.gnss_altitude_m - previous.gnss_altitude_m;
+                    
+                    // Vertical speeds
+                    current.vertical_speed_ms = current.pressure_altitude_m_delta / timeDelta;
+                    current.vertical_speed_gnss_ms = current.gnss_altitude_m_delta / timeDelta;
+                    
+                    // Distance and speed calculations
+                    const distance = this.calculateDistance(
+                        previous.lat, previous.lon,
+                        current.lat, current.lon
+                    );
+                    current.distance_traveled_m = distance;
+                    current.speed_ms = distance / timeDelta;
+                    current.speed_kmh = current.speed_ms * 3.6;
+                }
+                
+                // Calculate averages
+                this.calculateMovingAverages();
+            }
+            
+            calculateDistance(lat1, lon1, lat2, lon2) {
+                const R = 6371000; // Earth's radius in meters
+                const dLat = (lat2 - lat1) * Math.PI / 180;
+                const dLon = (lon2 - lon1) * Math.PI / 180;
+                const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                         Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                         Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                return R * c;
+            }
+            
+            calculateMovingAverages() {
+                const windowSize = 4;
+                for (let i = 0; i < this.dataframe.length; i++) {
+                    const start = Math.max(0, i - Math.floor(windowSize / 2));
+                    const end = Math.min(this.dataframe.length, i + Math.ceil(windowSize / 2));
+                    
+                    let sum = 0;
+                    let count = 0;
+                    for (let j = start; j < end; j++) {
+                        if (this.dataframe[j].vertical_speed_gnss_ms !== undefined) {
+                            sum += this.dataframe[j].vertical_speed_gnss_ms;
+                            count++;
+                        }
+                    }
+                    
+                    if (count > 0) {
+                        this.dataframe[i].vertical_speed_gnss_average_ms = sum / count;
+                    }
+                    
+                    // Speed average
+                    sum = 0;
+                    count = 0;
+                    for (let j = start; j < end; j++) {
+                        if (this.dataframe[j].speed_ms !== undefined) {
+                            sum += this.dataframe[j].speed_ms;
+                            count++;
+                        }
+                    }
+                    
+                    if (count > 0) {
+                        this.dataframe[i].speed_ms_average = sum / count;
+                        this.dataframe[i].speed_kmh_average = this.dataframe[i].speed_ms_average * 3.6;
+                    }
+                }
+            }
+            
+            exportKML(trackType = 'Track', prefix = '') {
+                const kmlHeader = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+<name>${prefix}${trackType}</name>`;
+                
+                const kmlFooter = `</Document>
+</kml>`;
+                
+                let kmlContent = '';
+                
+                for (let i = 1; i < this.dataframe.length; i++) {
+                    const current = this.dataframe[i];
+                    const previous = this.dataframe[i - 1];
+                    
+                    let color = 'ff0000ff'; // Default red
+                    
+                    if (trackType === 'Speed' && current.speed_kmh_average !== undefined) {
+                        const normalizedSpeed = this.normalizeValue(current.speed_kmh_average, 20, 35, 55);
+                        const rgb = this.speedColorScale(normalizedSpeed);
+                        color = this.rgbToKMLColor(rgb);
+                    } else if (trackType === 'VerticalSpeed' && current.vertical_speed_gnss_average_ms !== undefined) {
+                        const normalizedVSpeed = this.normalizeValue(current.vertical_speed_gnss_average_ms, -4, -1, 4);
+                        const rgb = this.thermalColorScale(normalizedVSpeed);
+                        color = this.rgbToKMLColor(rgb);
+                    }
+                    
+                    kmlContent += `
+<Placemark>
+<name>Segment ${i}</name>
+<TimeStamp><when>${current.time_iso}</when></TimeStamp>
+<Style>
+<LineStyle>
+<color>${color}</color>
+<width>2</width>
+</LineStyle>
+</Style>
+<LineString>
+<altitudeMode>absolute</altitudeMode>
+<coordinates>
+${previous.lon},${previous.lat},${previous.gnss_altitude_m}
+${current.lon},${current.lat},${current.gnss_altitude_m}
+</coordinates>
+</LineString>
+</Placemark>`;
+                }
+                
+                return kmlHeader + kmlContent + kmlFooter;
+            }
+            
+            normalizeValue(value, min, mid, max) {
+                if (value <= min) return 0;
+                if (value >= max) return 1;
+                if (value <= mid) {
+                    return (value - min) / (mid - min) * 0.5;
+                } else {
+                    return 0.5 + (value - mid) / (max - mid) * 0.5;
+                }
+            }
+            
+            speedColorScale(speed) {
+                let r, g, b;
+                
+                if (speed < 0.5) {
+                    speed *= 2;
+                    r = 0;
+                    g = 1 - speed;
+                    b = 1;
+                } else {
+                    speed = (speed - 0.5) * 2;
+                    r = speed;
+                    g = 0;
+                    b = 1 - speed;
+                }
+                
+                return [r, g, b];
+            }
+            
+            thermalColorScale(speed) {
+                let r, g, b;
+                
+                if (speed < 0.5) {
+                    speed *= 2;
+                    r = speed;
+                    g = speed;
+                    b = 1;
+                } else if (speed < 0.75) {
+                    speed = (speed - 0.5) * 4;
+                    r = 1;
+                    g = 1 - speed / 2;
+                    b = 1 - speed;
+                } else {
+                    speed = (speed - 0.75) * 4;
+                    r = 1;
+                    g = 0.5 - speed / 2;
+                    b = 0;
+                }
+                
+                return [r, g, b];
+            }
+            
+            rgbToKMLColor(rgb) {
+                const [r, g, b] = rgb;
+                const rHex = Math.round(r * 255).toString(16).padStart(2, '0');
+                const gHex = Math.round(g * 255).toString(16).padStart(2, '0');
+                const bHex = Math.round(b * 255).toString(16).padStart(2, '0');
+                return `ff${bHex}${gHex}${rHex}`;
+            }
+        }
+        
+        // UI Event Handlers
+        let currentIGC = null;
+        
+        const fileInput = document.getElementById('fileInput');
+        const processBtn = document.getElementById('processBtn');
+        
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+        
+        function handleFile(file) {
+            if (!file.name.toLowerCase().endsWith('.igc')) {
+                alert('Please select a valid .igc file');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    currentIGC = new IGCLog(e.target.result, file.name);
+                    processBtn.disabled = false;
+                } catch (error) {
+                    alert('Error parsing IGC file: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+        
+        function processFile() {
+            if (!currentIGC) return;
+            
+            const fileName = currentIGC.fileName.replace('.igc', '');
+            
+            const speedKML = currentIGC.exportKML('Speed', fileName + '_');
+            const verticalSpeedKML = currentIGC.exportKML('VerticalSpeed', fileName + '_');
+            
+            const speedBlob = new Blob([speedKML], { type: 'application/vnd.google-earth.kml+xml' });
+            const verticalSpeedBlob = new Blob([verticalSpeedKML], { type: 'application/vnd.google-earth.kml+xml' });
+            
+            const speedURL = URL.createObjectURL(speedBlob);
+            const verticalSpeedURL = URL.createObjectURL(verticalSpeedBlob);
+            
+            document.getElementById('output').innerHTML = `
+                <p>Files processed successfully:</p>
+                <a href="${speedURL}" download="${fileName}_speed.kml">Download Speed Track KML</a><br>
+                <a href="${verticalSpeedURL}" download="${fileName}_vertical_speed.kml">Download Vertical Speed KML</a>
+            `;
+        }
+    </script>
+</body>
+</html>
