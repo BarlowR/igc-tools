@@ -220,13 +220,29 @@ class IGCLog:
             self.dataframe[f"speed_kmh_{time_interval}s"] = self.dataframe[f"speed_ms_{time_interval}s"] * MS_TO_KMH
 
         self.dataframe["stopped_to_climb"] = self.dataframe["distance_traveled_m_30s"] < FORWARD_TRAVEL_THRESHOLD_20S
+        self.dataframe["on_glide"] = ~self.dataframe["stopped_to_climb"]
         self.dataframe["climbing"] = self.dataframe["vertical_speed_ms_5s"] >= CLIMBING_THRESHOLD
-        self.dataframe["sinking"] = self.dataframe["vertical_speed_ms_5s"] < CLIMBING_THRESHOLD
+        self.dataframe["sinking"] = ~self.dataframe["climbing"]
 
         self.dataframe["stopped_and_not_climbing"] = (self.dataframe["stopped_to_climb"] & ( self.dataframe["sinking"]))
-        self.dataframe["on_glide"] = ~self.dataframe["stopped_to_climb"]
+        self.dataframe["stopped_and_climbing"] = (self.dataframe["stopped_to_climb"] & ( self.dataframe["climbing"]))
         
         self.dataframe["climbing_on_glide"] = self.dataframe["on_glide"] & self.dataframe["climbing"]
+        self.dataframe["sinking_on_glide"] = self.dataframe["on_glide"] & self.dataframe["sinking"]
+
+        # Assign categories using loc to avoid SettingWithCopyWarning
+        self.dataframe["category"] = ""
+        self.dataframe.loc[self.dataframe["stopped_and_not_climbing"], "category"] = "stopped_and_not_climbing"
+        self.dataframe.loc[self.dataframe["stopped_and_climbing"], "category"] = "stopped_and_climbing"
+        self.dataframe.loc[self.dataframe["climbing_on_glide"], "category"] = "climbing_on_glide"
+        self.dataframe.loc[self.dataframe["sinking_on_glide"], "category"] = "sinking_on_glide"
+        
+        self.dataframe["stopped_and_not_climbing_s"] = self.dataframe["stopped_and_not_climbing"].cumsum()
+        self.dataframe["stopped_and_climbing_s"] = self.dataframe["stopped_and_climbing"].cumsum()
+        self.dataframe["climbing_on_glide_s"] = self.dataframe["climbing_on_glide"].cumsum()
+        self.dataframe["sinking_on_glide_s"] = self.dataframe["sinking_on_glide"].cumsum()
+
+
 
         # Calculate glide ratio only when sinking (negative vertical speed < -0.4 m/s)
         # Glide ratio = horizontal speed / abs(vertical speed)
@@ -240,14 +256,19 @@ class IGCLog:
         # Calculate total meters climbed (sum of all positive altitude gains)
         # Use 5s interval divided by 5 to smooth GPS noise
         self.dataframe["altitude_gain_m"] = (self.dataframe["gnss_altitude_m_delta_5s"] / 5).clip(lower=0)
+        self.dataframe["altitude_loss_m"] = (self.dataframe["gnss_altitude_m_delta_5s"] / 5).clip(upper=0)
         self.dataframe["total_meters_climbed"] = self.dataframe["altitude_gain_m"].cumsum()
+        self.dataframe["total_meters_lost"] = self.dataframe["altitude_loss_m"].cumsum()
 
         # Calculate cumulative time spent climbing (in seconds)
         # Use seconds_delta_1s where climbing is True, 0 otherwise
-        self.dataframe["time_climbing_s"] = self.dataframe["seconds_delta_1s"].where(self.dataframe["climbing"], 0)
-        self.dataframe["cumulative_time_climbing_s"] = self.dataframe["time_climbing_s"].cumsum()
+        self.dataframe["time_climbing_s"] = self.dataframe["seconds_delta_1s"].where(self.dataframe["stopped_to_climb"], 0)
+        self.dataframe["time_gliding_s"] = self.dataframe["seconds_delta_1s"].where(self.dataframe["on_glide"], 0)
         
-        self.dataframe["climb_rate_avg"] = self.dataframe["vertical_speed_ms_20s"].where(self.dataframe["climbing"]).rolling(60).mean()
+        self.dataframe["cumulative_time_climbing_s"] = self.dataframe["time_climbing_s"].cumsum()
+        self.dataframe["cumulative_time_gliding_s"] = self.dataframe["time_gliding_s"].cumsum()
+        
+        self.dataframe["climb_rate_avg"] = self.dataframe["vertical_speed_ms_5s"].where(self.dataframe["climbing"]).rolling(10).mean()
         
         self.dataframe['lon_wm'], self.dataframe['lat_wm'] = latlon_to_webmercator(self.dataframe['lon'], self.dataframe['lat'])
 
