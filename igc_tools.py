@@ -14,10 +14,20 @@ import math_utils
 
 MS_TO_KMH = 3.6
 
+FORWARD_TRAVEL_THRESHOLD_20S = 200
+CLIMBING_THRESHOLD = -0.5
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--in_file', type=str, required=True)
 parser.add_argument('--out_file', type=str, required=False, default="")
 parser.add_argument('--use_name', action='store_true', required=False)
+
+def latlon_to_webmercator(lon, lat):
+            """Convert lat/lon to Web Mercator x/y"""
+            x = lon * 20037508.34 / 180
+            y = np.log(np.tan((90 + lat) * np.pi / 360)) / (np.pi / 180)
+            y = y * 20037508.34 / 180
+            return x, y
 
 @dataclass
 class BFix:
@@ -190,42 +200,65 @@ class IGCLog:
         self.dataframe["time_pandas"] = pd.to_datetime(self.dataframe["time_iso"], format="%Y-%m-%dT%H:%M:%S")
 
         self.dataframe["seconds_delta"] = self.dataframe["time_pandas"].diff().dt.total_seconds()
-        self.dataframe = self.dataframe[self.dataframe["seconds_delta"] > 0]
-        self.dataframe["pressure_altitude_m_delta"] = self.dataframe["pressure_altitude_m"].diff()
+        self.dataframe = self.dataframe[self.dataframe["seconds_delta"] > 0].reset_index(drop=True)
 
-        self.dataframe["gnss_altitude_m_delta"] = self.dataframe["gnss_altitude_m"].diff()
+        for time_interval in [1, 5, 20, 30]:
+            self.dataframe[f"gnss_altitude_m_delta_{time_interval}s"] = self.dataframe["gnss_altitude_m"].diff(periods=time_interval)
+            self.dataframe[f"seconds_delta_{time_interval}s"] = self.dataframe["time_pandas"].diff(periods=time_interval).dt.total_seconds()
 
-        self.dataframe["vertical_speed_ms"] = (
-            self.dataframe["pressure_altitude_m_delta"] / self.dataframe["seconds_delta"]
-        )
-        self.dataframe["vertical_speed_gnss_ms"] = (
-            self.dataframe["gnss_altitude_m_delta"] / self.dataframe["seconds_delta"]
-        )
-        self.dataframe["vertical_speed_gnss_average_ms"] = (
-            self.dataframe["vertical_speed_gnss_ms"].rolling(4, center=True).mean()
-        )
+            self.dataframe[f"vertical_speed_ms_{time_interval}s"] = (
+                self.dataframe[f"gnss_altitude_m_delta_{time_interval}s"] / self.dataframe[f"seconds_delta_{time_interval}s"]
+            )
+            
+            self.dataframe = math_utils.build_direction_heading_fields(self.dataframe, time_interval)
 
-        self.dataframe = math_utils.build_direction_heading_fields(self.dataframe)
-        self.dataframe["speed_ms"] = self.dataframe["distance_traveled_m_4s"] / (
-            self.dataframe["seconds_delta"].rolling(4).sum()
-        )
-        self.dataframe["speed_kmh"] = self.dataframe["speed_ms"] * MS_TO_KMH
-        self.dataframe["speed_kmh_average"] = self.dataframe["speed_ms"].rolling(20, center=True).mean() * MS_TO_KMH
-        self.dataframe["glide"] = self.dataframe["speed_ms"] / -self.dataframe["vertical_speed_gnss_average_ms"]
-        self.dataframe.loc[(self.dataframe["vertical_speed_gnss_average_ms"] > -0.4), "glide"] = np.nan
 
-        self.dataframe["glide_60s"] = self.dataframe["glide"].rolling(120, center=True, min_periods=30).mean()
+            self.dataframe[f"speed_ms_{time_interval}s"] = (
+                self.dataframe[f"distance_traveled_m_{time_interval}s"] / self.dataframe[f"seconds_delta_{time_interval}s"]
+            )
+
+            self.dataframe[f"speed_kmh_{time_interval}s"] = self.dataframe[f"speed_ms_{time_interval}s"] * MS_TO_KMH
+
+        self.dataframe["stopped_to_climb"] = self.dataframe["distance_traveled_m_30s"] < FORWARD_TRAVEL_THRESHOLD_20S
+        self.dataframe["climbing"] = self.dataframe["vertical_speed_ms_5s"] >= CLIMBING_THRESHOLD
+        self.dataframe["sinking"] = self.dataframe["vertical_speed_ms_5s"] < CLIMBING_THRESHOLD
+
+        self.dataframe["stopped_and_not_climbing"] = (self.dataframe["stopped_to_climb"] & ( self.dataframe["sinking"]))
+        self.dataframe["on_glide"] = ~self.dataframe["stopped_to_climb"]
+        
+        self.dataframe["climbing_on_glide"] = self.dataframe["on_glide"] & self.dataframe["climbing"]
+
+        # Calculate glide ratio only when sinking (negative vertical speed < -0.4 m/s)
+        # Glide ratio = horizontal speed / abs(vertical speed)
+        self.dataframe["glide"] = np.nan
+        self.dataframe.loc[ self.dataframe["on_glide"], "glide"] = (
+            self.dataframe.loc[ self.dataframe["on_glide"], "speed_ms_20s"] /
+            -self.dataframe.loc[ self.dataframe["on_glide"], "vertical_speed_ms_20s"]
+        )
+        self.dataframe["glide"] = self.dataframe["glide"].clip(lower=-50, upper=50)
+
+        # Calculate total meters climbed (sum of all positive altitude gains)
+        # Use 5s interval divided by 5 to smooth GPS noise
+        self.dataframe["altitude_gain_m"] = (self.dataframe["gnss_altitude_m_delta_5s"] / 5).clip(lower=0)
+        self.dataframe["total_meters_climbed"] = self.dataframe["altitude_gain_m"].cumsum()
+
+        # Calculate cumulative time spent climbing (in seconds)
+        # Use seconds_delta_1s where climbing is True, 0 otherwise
+        self.dataframe["time_climbing_s"] = self.dataframe["seconds_delta_1s"].where(self.dataframe["climbing"], 0)
+        self.dataframe["cumulative_time_climbing_s"] = self.dataframe["time_climbing_s"].cumsum()
+        
+        self.dataframe["climb_rate_avg"] = self.dataframe["vertical_speed_ms_20s"].where(self.dataframe["climbing"]).rolling(60).mean()
+        
+        self.dataframe['lon_wm'], self.dataframe['lat_wm'] = latlon_to_webmercator(self.dataframe['lon'], self.dataframe['lat'])
+
         # remove intermediaries
-        self.dataframe.drop(
+        self.dataframe = self.dataframe.drop(
             columns=[
                 "seconds_delta",
-                "pressure_altitude_m_delta",
-                "gnss_altitude_m_delta",
+                "altitude_gain_m"
             ]
         )
-
-        self.dataframe.dropna()
-
+        
     def export_gpx(self, filename):
         gpx_out = gpxpy.gpx.GPX()
         # Create track:

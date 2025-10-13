@@ -59,23 +59,17 @@ def haversine(lat1, lon1, lat2, lon2):
     return c * r
 
 
-def build_direction_heading_fields(df):
+def build_direction_heading_fields(df, time_period):
     """ Build out distance and heading fields from position data """
-    df["prev_lat_1s"] = df["lat"].shift(periods=1)
-    df["prev_lon_1s"] = df["lon"].shift(periods=1)
-    df["prev_lat_4s"] = df["lat"].shift(periods=4)
-    df["prev_lon_4s"] = df["lon"].shift(periods=4)
-
+    df[f"prev_lat"] = df["lat"].shift(periods=time_period)
+    df[f"prev_lon"] = df["lon"].shift(periods=time_period)
+    
     # Distance
-    df = df.assign(distance_traveled_m_1s=haversine(df["lat"], df["lon"], df["prev_lat_1s"], df["prev_lon_1s"]))
-    df = df.assign(distance_traveled_m_4s=haversine(df["lat"], df["lon"], df["prev_lat_4s"], df["prev_lon_4s"]))
-
-    df["distance_traveled_m_16s"] = df["distance_traveled_m_4s"].rolling(4).sum()
-    df["distance_traveled_m_60s"] = df["distance_traveled_m_1s"].rolling(15).sum()
+    kwargs = { f"distance_traveled_m_{time_period}s" : haversine(df["lat"], df["lon"], df["prev_lat"], df["prev_lon"])}
+    df = df.assign(**kwargs)
 
     # TODO: Heading
-
-    df.drop(columns=["prev_lat_1s", "prev_lon_1s", "prev_lat_4s", "prev_lon_4s"])
+    df.drop(columns=["prev_lat", "prev_lon"])
     return df
 
 
