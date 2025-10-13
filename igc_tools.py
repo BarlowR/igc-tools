@@ -11,6 +11,7 @@ import argparse
 
 import igc_tools
 import math_utils
+import xctsk_tools
 
 MS_TO_KMH = 3.6
 
@@ -163,6 +164,7 @@ class IGCLog:
     fixes: None
     start_time: datetime.datetime = None
     dataframe: pd.DataFrame = None
+    comp_dataframe: pd.DataFrame = None
     last_hour = None
     pilot_name = None
 
@@ -242,8 +244,6 @@ class IGCLog:
         self.dataframe["climbing_on_glide_s"] = self.dataframe["climbing_on_glide"].cumsum()
         self.dataframe["sinking_on_glide_s"] = self.dataframe["sinking_on_glide"].cumsum()
 
-
-
         # Calculate glide ratio only when sinking (negative vertical speed < -0.4 m/s)
         # Glide ratio = horizontal speed / abs(vertical speed)
         self.dataframe["glide"] = np.nan
@@ -253,21 +253,18 @@ class IGCLog:
         )
         self.dataframe["glide"] = self.dataframe["glide"].clip(lower=-50, upper=50)
 
-        # Calculate total meters climbed (sum of all positive altitude gains)
+        # Calculate per-second altitude changes
         # Use 5s interval divided by 5 to smooth GPS noise
         self.dataframe["altitude_gain_m"] = (self.dataframe["gnss_altitude_m_delta_5s"] / 5).clip(lower=0)
         self.dataframe["altitude_loss_m"] = (self.dataframe["gnss_altitude_m_delta_5s"] / 5).clip(upper=0)
-        self.dataframe["total_meters_climbed"] = self.dataframe["altitude_gain_m"].cumsum()
-        self.dataframe["total_meters_lost"] = self.dataframe["altitude_loss_m"].cumsum()
 
-        # Calculate cumulative time spent climbing (in seconds)
-        # Use seconds_delta_1s where climbing is True, 0 otherwise
+        # Calculate per-second time spent in each mode
         self.dataframe["time_climbing_s"] = self.dataframe["seconds_delta_1s"].where(self.dataframe["stopped_to_climb"], 0)
         self.dataframe["time_gliding_s"] = self.dataframe["seconds_delta_1s"].where(self.dataframe["on_glide"], 0)
-        
-        self.dataframe["cumulative_time_climbing_s"] = self.dataframe["time_climbing_s"].cumsum()
-        self.dataframe["cumulative_time_gliding_s"] = self.dataframe["time_gliding_s"].cumsum()
-        
+
+        # Calculate cumulative metrics
+        self._calculate_cumulative_metrics(self.dataframe)
+
         self.dataframe["climb_rate_avg"] = self.dataframe["vertical_speed_ms_5s"].where(self.dataframe["climbing"]).rolling(10).mean()
         
         self.dataframe['lon_wm'], self.dataframe['lat_wm'] = latlon_to_webmercator(self.dataframe['lon'], self.dataframe['lat'])
@@ -279,7 +276,77 @@ class IGCLog:
                 "altitude_gain_m"
             ]
         )
-        
+
+    def _calculate_cumulative_metrics(self, df):
+        """
+        Calculate cumulative metrics for a dataframe.
+        This is a helper function to avoid code duplication between
+        build_computed_metrics and build_computed_comp_metrics.
+
+        Args:
+            df: DataFrame with altitude_gain_m, altitude_loss_m, time_climbing_s,
+                time_gliding_s, and category boolean columns
+
+        Modifies the dataframe in place to add cumulative columns.
+        """
+        # Calculate cumulative altitude metrics
+        df["total_meters_climbed"] = df["altitude_gain_m"].cumsum()
+        df["total_meters_lost"] = df["altitude_loss_m"].cumsum()
+
+        # Calculate cumulative time spent in each category
+        df["stopped_and_not_climbing_s"] = df["stopped_and_not_climbing"].cumsum()
+        df["stopped_and_climbing_s"] = df["stopped_and_climbing"].cumsum()
+        df["climbing_on_glide_s"] = df["climbing_on_glide"].cumsum()
+        df["sinking_on_glide_s"] = df["sinking_on_glide"].cumsum()
+
+        # Calculate cumulative time spent climbing and gliding
+        df["cumulative_time_climbing_s"] = df["time_climbing_s"].cumsum()
+        df["cumulative_time_gliding_s"] = df["time_gliding_s"].cumsum()
+
+    def build_computed_comp_metrics(self, task: xctsk_tools.xctsk):
+        """
+        Build competition metrics by filtering the dataframe to only include data
+        from the task start time onwards and recalculating cumulative values.
+
+        Args:
+            task: An xctsk object containing the task definition
+
+        Returns:
+            pandas.DataFrame: A copy of the dataframe filtered to start from the task start time
+                             with recalculated cumulative metrics
+        """
+        # Extract the first time gate from sss.timeGates
+        start_time_str = task.sss['timeGates'][0]
+
+        # Parse the time string (format: "13:00:00Z" or "19:30:00Z")
+        # Convert to datetime by combining with the flight date
+        time_parts = start_time_str.replace('Z', '').split(':')
+        start_hour = int(time_parts[0])
+        start_minute = int(time_parts[1])
+        start_second = int(time_parts[2])
+
+        # Combine with the flight date
+        start_datetime = datetime.datetime.combine(
+            self.day.date(),
+            datetime.time(hour=start_hour, minute=start_minute, second=start_second)
+        )
+
+        # Create a copy of the dataframe and filter to only include data from start time onwards
+        self.comp_dataframe = self.dataframe.copy()
+        self.comp_dataframe = self.comp_dataframe[self.comp_dataframe['time_pandas'] >= start_datetime].reset_index(drop=True)
+
+        # Recalculate per-second altitude changes for the competition window
+        self.comp_dataframe["altitude_gain_m"] = (self.comp_dataframe["gnss_altitude_m_delta_5s"] / 5).clip(lower=0)
+        self.comp_dataframe["altitude_loss_m"] = (self.comp_dataframe["gnss_altitude_m_delta_5s"] / 5).clip(upper=0)
+
+        # Recalculate cumulative metrics from the start of the competition window
+        self._calculate_cumulative_metrics(self.comp_dataframe)
+
+        # Remove the temporary altitude_gain_m column to match main dataframe
+        self.comp_dataframe = self.comp_dataframe.drop(columns=["altitude_gain_m"])
+
+        return self.comp_dataframe
+    
     def export_gpx(self, filename):
         gpx_out = gpxpy.gpx.GPX()
         # Create track:
