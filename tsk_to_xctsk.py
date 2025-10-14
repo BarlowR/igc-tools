@@ -41,6 +41,8 @@ def determine_turnpoint_type(no_str):
 def convert_task_to_xctsk(input_file):
     """Convert task.txt format to xctsk format"""
     turnpoints = []
+    start_time = None
+    end_time = None
 
     with open(input_file, 'r') as f:
         lines = f.readlines()
@@ -56,6 +58,15 @@ def convert_task_to_xctsk(input_file):
                 continue
 
             no, dist, tp_id, radius, open_time, close_time, coordinates, altitude = parts
+
+            # Extract start time from the first turnpoint (SSS)
+            if start_time is None:
+                # Convert "13:00" to "13:00:00Z"
+                start_time = open_time.strip() + ":00Z" if len(open_time.strip().split(':')) == 2 else open_time.strip() + "Z"
+
+            # Extract end time (use close time from any turnpoint, they should all be the same)
+            if end_time is None:
+                end_time = close_time.strip() + ":00Z" if len(close_time.strip().split(':')) == 2 else close_time.strip() + "Z"
 
             # Parse values
             lat, lon = parse_coordinates(coordinates)
@@ -81,6 +92,12 @@ def convert_task_to_xctsk(input_file):
 
             turnpoints.append(turnpoint)
 
+    # Use defaults if not found
+    if start_time is None:
+        start_time = "13:00:00Z"
+    if end_time is None:
+        end_time = "20:00:00Z"
+
     # Build the xctsk structure
     xctsk = {
         "version": 1,
@@ -89,11 +106,11 @@ def convert_task_to_xctsk(input_file):
         "sss": {
             "type": "RACE",
             "direction": "EXIT",
-            "timeGates": ["13:00:00Z"]
+            "timeGates": [start_time]
         },
         "goal": {
             "type": "CYLINDER",
-            "deadline": "20:00:00Z"
+            "deadline": end_time
         },
         "earthModel": "WGS84"
     }

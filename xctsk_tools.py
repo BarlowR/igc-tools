@@ -50,6 +50,9 @@ class xctsk:
     task_type:str = ""
     turnpoints = []
 
+    def __init__(self, path):
+        self.ingest_xctsk(path)
+
     def ingest_xctsk(self, xctsk_file: str):
         """
         Parse an xctsk. This is fairly easy since xctsk files are just Json files with a different extension.
@@ -58,11 +61,15 @@ class xctsk:
         with open(xctsk_file, "r") as xctsk_file:
             xc_task = json.load(xctsk_file)
 
-            # Currently unused...
-            # self.earth_model = xc_task["earthModel"]
-            # self.goal = xc_task["goal"]
-            # self.sss = xc_task["sss"]conda ins
-            # self.task_type = xc_task["taskType"]
+            # Load task metadata
+            if "earthModel" in xc_task:
+                self.earth_model = xc_task["earthModel"]
+            if "goal" in xc_task:
+                self.goal = xc_task["goal"]
+            if "sss" in xc_task:
+                self.sss = xc_task["sss"]
+            if "taskType" in xc_task:
+                self.task_type = xc_task["taskType"]
 
             # load the tunpoints into objects
             for index, tp in enumerate(xc_task["turnpoints"]):
@@ -118,6 +125,5 @@ if __name__ == "__main__":
     elif out_file[-4:] == ".kml":
         out_file = out_file[:-4]
 
-    task = xctsk()
-    task.ingest_xctsk(in_file)
+    task = xctsk(in_file)
     task.export_to_kml(out_file)
