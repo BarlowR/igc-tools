@@ -303,6 +303,8 @@ class IGCLog:
         df["cumulative_time_climbing_s"] = df["time_climbing_s"].cumsum()
         df["cumulative_time_gliding_s"] = df["time_gliding_s"].cumsum()
 
+        df["cumulative_distance"] = (df["distance_traveled_m_20s"] / 20).cumsum()
+
     def build_computed_comp_metrics(self, task: xctsk_tools.xctsk):
         """
         Build competition metrics by filtering the dataframe to only include data
@@ -344,6 +346,97 @@ class IGCLog:
 
         # Remove the temporary altitude_gain_m column to match main dataframe
         self.comp_dataframe = self.comp_dataframe.drop(columns=["altitude_gain_m"])
+
+        # Track progress around the task
+        self._track_task_progress(self.comp_dataframe, task)
+
+        return self.comp_dataframe
+
+    def _track_task_progress(self, df, task):
+        """
+        Track progress around the task by determining which waypoint is next
+        and how long since entering the last waypoint cylinder.
+
+        Args:
+            df: Competition dataframe
+            task: xctsk object with turnpoints
+
+        Modifies the dataframe in place to add:
+            - next_waypoint: Index of the next turnpoint to reach
+            - next_waypoint_name: Name of the next turnpoint
+            - time_since_last_waypoint_s: Seconds since first entering the last waypoint cylinder
+        """
+        # Initialize columns
+        df["next_waypoint"] = 0
+        df["next_waypoint_name"] = ""
+        df["time_since_last_waypoint_s"] = 0.0
+        df["in_cylinder"] = False
+
+        current_waypoint = 0
+        tp = task.turnpoints[current_waypoint]
+        if tp.type == "TAKEOFF":
+            current_waypoint += 1
+        last_waypoint_entry_time = None
+
+        for idx in range(len(df)):
+            lat = df.loc[idx, "lat"]
+            lon = df.loc[idx, "lon"]
+            current_time = df.loc[idx, "time_pandas"]
+
+            # Check if we've reached the current waypoint
+            if current_waypoint == len(task.turnpoints):
+                # Finished the task
+                df.loc[idx, "next_waypoint"] = len(task.turnpoints)
+                df.loc[idx, "next_waypoint_name"] = "FINISHED"
+                continue
+
+            tp = task.turnpoints[current_waypoint]
+            distance = math_utils.haversine(lat, lon, tp.lat, tp.lon)
+
+            # Check if we're inside the cylinder
+            in_cylinder = distance <= tp.radius
+            df.loc[idx, "in_cylinder"] = in_cylinder
+
+            # If we enter the cylinder, record the entry time
+            if in_cylinder and last_waypoint_entry_time is None:
+                last_waypoint_entry_time = current_time
+
+
+            print(in_cylinder)
+
+            # Check if we should advance to the next waypoint
+            # For SSS, we advance when we EXIT the cylinder
+            # For other turnpoints, we advance when we exit after entering
+            if tp.type == "SSS":
+                # For start, check if we've entered and are now exiting
+                if last_waypoint_entry_time is not None and not in_cylinder:
+                    # We've exited the start cylinder
+                    current_waypoint += 1
+                    last_waypoint_entry_time = None
+            else:
+                # For regular turnpoints, advance when exiting after entering
+                if in_cylinder and last_waypoint_entry_time is not None:
+                    # Check if we're about to exit on the next point
+                    if idx < len(df) - 1:
+                        next_distance = math_utils.haversine(
+                            df.loc[idx + 1, "lat"],
+                            df.loc[idx + 1, "lon"],
+                            tp.lat,
+                            tp.lon
+                        )
+                        if next_distance > tp.radius:
+                            # We're exiting, advance to next waypoint
+                            current_waypoint += 1
+                            last_waypoint_entry_time = None
+
+            # Record current waypoint info
+            df.loc[idx, "next_waypoint"] = current_waypoint
+            df.loc[idx, "next_waypoint_name"] = task.turnpoints[current_waypoint].name
+                
+
+            # Calculate time since last waypoint entry
+            if last_waypoint_entry_time is not None:
+                df.loc[idx, "time_since_last_waypoint_s"] = (current_time - last_waypoint_entry_time).total_seconds()
 
         return self.comp_dataframe
     
