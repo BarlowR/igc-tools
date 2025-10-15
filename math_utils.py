@@ -59,18 +59,22 @@ def haversine(lat1, lon1, lat2, lon2):
     return c * r
 
 
-def build_direction_heading_fields(df, time_period):
-    """ Build out distance and heading fields from position data """
-    df[f"prev_lat"] = df["lat"].shift(periods=time_period)
-    df[f"prev_lon"] = df["lon"].shift(periods=time_period)
-    
+def build_direction_heading_fields(dataframe, time_period):
+    """Build out distance and heading fields from position data"""
+    dataframe[f"prev_lat"] = dataframe["lat"].shift(periods=time_period)
+    dataframe[f"prev_lon"] = dataframe["lon"].shift(periods=time_period)
+
     # Distance
-    kwargs = { f"distance_traveled_m_{time_period}s" : haversine(df["lat"], df["lon"], df["prev_lat"], df["prev_lon"])}
-    df = df.assign(**kwargs)
+    distance_col = f"distance_traveled_m_{time_period}s"
+    kwargs = {distance_col: haversine(
+        dataframe["lat"], dataframe["lon"],
+        dataframe["prev_lat"], dataframe["prev_lon"]
+    )}
+    dataframe = dataframe.assign(**kwargs)
 
     # TODO: Heading
-    df.drop(columns=["prev_lat", "prev_lon"])
-    return df
+    dataframe = dataframe.drop(columns=["prev_lat", "prev_lon"])
+    return dataframe
 
 
 def idx_min(x):

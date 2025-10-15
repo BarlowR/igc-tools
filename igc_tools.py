@@ -1,13 +1,13 @@
-import pandas as pd
-import numpy as np
-from dataclasses import dataclass
-import datetime
-import gpxpy
-import os
-from simplekml import Kml, Color
-from copy import deepcopy
+"""IGC flight log parsing and analysis tools for paragliding."""
 import argparse
+import datetime
+import os
+from dataclasses import dataclass
 
+import numpy as np
+import pandas as pd
+import gpxpy
+from simplekml import Kml, Color
 
 import igc_tools
 import math_utils
@@ -24,11 +24,11 @@ parser.add_argument('--out_file', type=str, required=False, default="")
 parser.add_argument('--use_name', action='store_true', required=False)
 
 def latlon_to_webmercator(lon, lat):
-            """Convert lat/lon to Web Mercator x/y"""
-            x = lon * 20037508.34 / 180
-            y = np.log(np.tan((90 + lat) * np.pi / 360)) / (np.pi / 180)
-            y = y * 20037508.34 / 180
-            return x, y
+    """Convert lat/lon to Web Mercator x/y"""
+    x = lon * 20037508.34 / 180
+    y = np.log(np.tan((90 + lat) * np.pi / 360)) / (np.pi / 180)
+    y = y * 20037508.34 / 180
+    return x, y
 
 @dataclass
 class BFix:
@@ -179,18 +179,18 @@ class IGCLog:
         self.fixes = []
         self.header_info, fixes_list, self.footer_info = igc_tools.ingest_igc_file(self.file_path)
 
-        for header in self.header_info: 
-            if (header[0:5] == "HFDTE"):
+        for header in self.header_info:
+            if header[0:5] == "HFDTE":
                 # HFDTE050225
                 # or HFDTEDATE:080624,01
 
                 date_string = ""
-                if (header.find("DATE:") != -1):
+                if header.find("DATE:") != -1:
                     date_string = header.split(":")[1][:6]
-                else: 
+                else:
                     date_string = header[5:]
                 self.day = datetime.datetime.strptime(date_string, "%d%m%y")
-            if (header[0:10] == "HFPLTPILOT"):
+            if header[0:10] == "HFPLTPILOT":
                 # HFPLTPILOT:Robert Barlow
                 self.pilot_name = header.split(":")[1]
 
@@ -211,7 +211,7 @@ class IGCLog:
             self.dataframe[f"vertical_speed_ms_{time_interval}s"] = (
                 self.dataframe[f"gnss_altitude_m_delta_{time_interval}s"] / self.dataframe[f"seconds_delta_{time_interval}s"]
             )
-            
+
             self.dataframe = math_utils.build_direction_heading_fields(self.dataframe, time_interval)
 
 
@@ -226,9 +226,13 @@ class IGCLog:
         self.dataframe["climbing"] = self.dataframe["vertical_speed_ms_5s"] >= CLIMBING_THRESHOLD
         self.dataframe["sinking"] = ~self.dataframe["climbing"]
 
-        self.dataframe["stopped_and_not_climbing"] = (self.dataframe["stopped_to_climb"] & ( self.dataframe["sinking"]))
-        self.dataframe["stopped_and_climbing"] = (self.dataframe["stopped_to_climb"] & ( self.dataframe["climbing"]))
-        
+        self.dataframe["stopped_and_not_climbing"] = (
+            self.dataframe["stopped_to_climb"] & self.dataframe["sinking"]
+        )
+        self.dataframe["stopped_and_climbing"] = (
+            self.dataframe["stopped_to_climb"] & self.dataframe["climbing"]
+        )
+
         self.dataframe["climbing_on_glide"] = self.dataframe["on_glide"] & self.dataframe["climbing"]
         self.dataframe["sinking_on_glide"] = self.dataframe["on_glide"] & self.dataframe["sinking"]
 
@@ -352,13 +356,13 @@ class IGCLog:
 
         return self.comp_dataframe
 
-    def _track_task_progress(self, df, task):
+    def _track_task_progress(self, dataframe, task):
         """
         Track progress around the task by determining which waypoint is next
         and how long since entering the last waypoint cylinder.
 
         Args:
-            df: Competition dataframe
+            dataframe: Competition dataframe
             task: xctsk object with turnpoints
 
         Modifies the dataframe in place to add:
@@ -367,47 +371,44 @@ class IGCLog:
             - time_since_last_waypoint_s: Seconds since first entering the last waypoint cylinder
         """
         # Initialize columns
-        df["next_waypoint"] = 0
-        df["next_waypoint_name"] = ""
-        df["time_since_last_waypoint_s"] = 0.0
-        df["in_cylinder"] = False
+        dataframe["next_waypoint"] = 0
+        dataframe["next_waypoint_name"] = ""
+        dataframe["time_since_last_waypoint_s"] = 0.0
+        dataframe["in_cylinder"] = False
 
         current_waypoint = 0
-        tp = task.turnpoints[current_waypoint]
-        if tp.type == "TAKEOFF":
+        turnpoint = task.turnpoints[current_waypoint]
+        if turnpoint.type == "TAKEOFF":
             current_waypoint += 1
         last_waypoint_entry_time = None
 
-        for idx in range(len(df)):
-            lat = df.loc[idx, "lat"]
-            lon = df.loc[idx, "lon"]
-            current_time = df.loc[idx, "time_pandas"]
+        for idx in range(len(dataframe)):
+            lat = dataframe.loc[idx, "lat"]
+            lon = dataframe.loc[idx, "lon"]
+            current_time = dataframe.loc[idx, "time_pandas"]
 
             # Check if we've reached the current waypoint
             if current_waypoint == len(task.turnpoints):
                 # Finished the task
-                df.loc[idx, "next_waypoint"] = len(task.turnpoints)
-                df.loc[idx, "next_waypoint_name"] = "FINISHED"
+                dataframe.loc[idx, "next_waypoint"] = len(task.turnpoints)
+                dataframe.loc[idx, "next_waypoint_name"] = "FINISHED"
                 continue
 
-            tp = task.turnpoints[current_waypoint]
-            distance = math_utils.haversine(lat, lon, tp.lat, tp.lon)
+            turnpoint = task.turnpoints[current_waypoint]
+            distance = math_utils.haversine(lat, lon, turnpoint.lat, turnpoint.lon)
 
             # Check if we're inside the cylinder
-            in_cylinder = distance <= tp.radius
-            df.loc[idx, "in_cylinder"] = in_cylinder
+            in_cylinder = distance <= turnpoint.radius
+            dataframe.loc[idx, "in_cylinder"] = in_cylinder
 
             # If we enter the cylinder, record the entry time
             if in_cylinder and last_waypoint_entry_time is None:
                 last_waypoint_entry_time = current_time
 
-
-            print(in_cylinder)
-
             # Check if we should advance to the next waypoint
             # For SSS, we advance when we EXIT the cylinder
             # For other turnpoints, we advance when we exit after entering
-            if tp.type == "SSS":
+            if turnpoint.type == "SSS":
                 # For start, check if we've entered and are now exiting
                 if last_waypoint_entry_time is not None and not in_cylinder:
                     # We've exited the start cylinder
@@ -417,29 +418,29 @@ class IGCLog:
                 # For regular turnpoints, advance when exiting after entering
                 if in_cylinder and last_waypoint_entry_time is not None:
                     # Check if we're about to exit on the next point
-                    if idx < len(df) - 1:
+                    if idx < len(dataframe) - 1:
                         next_distance = math_utils.haversine(
-                            df.loc[idx + 1, "lat"],
-                            df.loc[idx + 1, "lon"],
-                            tp.lat,
-                            tp.lon
+                            dataframe.loc[idx + 1, "lat"],
+                            dataframe.loc[idx + 1, "lon"],
+                            turnpoint.lat,
+                            turnpoint.lon
                         )
-                        if next_distance > tp.radius:
+                        if next_distance > turnpoint.radius:
                             # We're exiting, advance to next waypoint
                             current_waypoint += 1
                             last_waypoint_entry_time = None
 
             # Record current waypoint info
-            df.loc[idx, "next_waypoint"] = current_waypoint
-            df.loc[idx, "next_waypoint_name"] = task.turnpoints[current_waypoint].name
-                
+            dataframe.loc[idx, "next_waypoint"] = current_waypoint
+            dataframe.loc[idx, "next_waypoint_name"] = task.turnpoints[current_waypoint].name
 
             # Calculate time since last waypoint entry
             if last_waypoint_entry_time is not None:
-                df.loc[idx, "time_since_last_waypoint_s"] = (current_time - last_waypoint_entry_time).total_seconds()
+                time_delta = (current_time - last_waypoint_entry_time).total_seconds()
+                dataframe.loc[idx, "time_since_last_waypoint_s"] = time_delta
 
         return self.comp_dataframe
-    
+
     def export_gpx(self, filename):
         gpx_out = gpxpy.gpx.GPX()
         # Create track:
@@ -449,7 +450,7 @@ class IGCLog:
         gpx_segment = gpxpy.gpx.GPXTrackSegment()
         gpx_track.segments.append(gpx_segment)
 
-        for index, row in self.dataframe.iterrows():
+        for _, row in self.dataframe.iterrows():
             gpx_segment.points.append(
                 gpxpy.gpx.GPXTrackPoint(row["lat"], row["lon"], elevation=row["pressure_altitude_m"])
             )
@@ -463,12 +464,12 @@ class IGCLog:
         last_point = [0, 0, 0]
         init = False
 
-        for idx, row in self.dataframe.iterrows():
+        for _, row in self.dataframe.iterrows():
             longitude = row["lon"]
             latitude = row["lat"]
             altitude = row["gnss_altitude_m"]
             time = row["time_iso"]
-            if init == False:
+            if not init:
                 init = True
                 last_point = [longitude, latitude, altitude]
 
@@ -480,12 +481,12 @@ class IGCLog:
 
 
             if track_type == "Speed":
-                norm_val = math_utils.three_point_normalizer(row["speed_kmh_average"], 20, 35, 55)
+                norm_val = math_utils.three_point_normalizer(row["speed_kmh_20s"], 20, 35, 55)
                 r, g, b = speed_color_scale(norm_val)
                 ls.style.linestyle.color = kml_color_gradient_generator(1, r, g, b)
 
             elif track_type == "VerticalSpeed":
-                norm_val = math_utils.three_point_normalizer(row["vertical_speed_gnss_average_ms"], -4, -1, 4)
+                norm_val = math_utils.three_point_normalizer(row["vertical_speed_ms_5s"], -4, -1, 4)
                 r, g, b = thermal_color_scale(norm_val)
                 ls.style.linestyle.color = kml_color_gradient_generator(1, r, g, b)
 
@@ -516,16 +517,17 @@ class IGCLog:
         assert line[0] == "B"
 
         # parse time to datetime
-        # TODO: strptime
         hour = int(line[1:3])
-        min = int(line[3:5])
+        minute = int(line[3:5])
         sec = int(line[5:7])
         # Check for day rollover
-        if (self.last_hour == 23 and hour == 0):
-            self.day += datetime.timedelta(days= 1)
+        if self.last_hour == 23 and hour == 0:
+            self.day += datetime.timedelta(days=1)
 
         self.last_hour = hour
-        fix.time = datetime.datetime.combine(self.day, datetime.time(hour=hour, minute=min, second=sec))
+        fix.time = datetime.datetime.combine(
+            self.day, datetime.time(hour=hour, minute=minute, second=sec)
+        )
 
         # pull latitude
         lat_degrees = int(line[7:9])
@@ -564,19 +566,21 @@ if __name__ == "__main__":
         out_file = out_file[:-4]
 
     flight_log = igc_tools.IGCLog(in_file)
-    if (use_name):
-        if flight_log.pilot_name == None:
+    if use_name:
+        if flight_log.pilot_name is None:
             print("No pilot name found in file, using default filename")
-        else: 
+        elif out_file:
             in_dir = os.path.dirname(in_file)
-            prefix = f"{in_dir}/{out_file}"
-            if (out_file != ""):
-                prefix += "_"
+            prefix = f"{in_dir}/{out_file}_"
             prefix += flight_log.pilot_name.lower().replace(" ", "_")
             flight_log.export_tracks(f"{prefix}")
-            exit()
-    
-    # Make the output file name the same as the input if none is given
-    if not out_file:
-        out_file = in_file[:-4]
-    flight_log.export_tracks(f"{out_file}")
+        else:
+            in_dir = os.path.dirname(in_file)
+            prefix = f"{in_dir}/"
+            prefix += flight_log.pilot_name.lower().replace(" ", "_")
+            flight_log.export_tracks(f"{prefix}")
+    else:
+        # Make the output file name the same as the input if none is given
+        if not out_file:
+            out_file = in_file[:-4]
+        flight_log.export_tracks(f"{out_file}")
