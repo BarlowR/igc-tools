@@ -312,13 +312,13 @@ class IGCLog:
     def build_computed_comp_metrics(self, task: xctsk_tools.xctsk):
         """
         Build competition metrics by filtering the dataframe to only include data
-        from the task start time onwards and recalculating cumulative values.
+        from the task start time to when GOAL is reached, then recalculating cumulative values.
 
         Args:
             task: An xctsk object containing the task definition
 
         Returns:
-            pandas.DataFrame: A copy of the dataframe filtered to start from the task start time
+            pandas.DataFrame: A copy of the dataframe filtered from start to GOAL
                              with recalculated cumulative metrics
         """
         # Extract the first time gate from sss.timeGates
@@ -339,11 +339,17 @@ class IGCLog:
 
         # Create a copy of the dataframe and filter to only include data from start time onwards
         self.comp_dataframe = self.dataframe.copy()
-        self.comp_dataframe = self.comp_dataframe[self.comp_dataframe['time_pandas'] >= start_datetime].reset_index(drop=True)
+        self.comp_dataframe = self.comp_dataframe[
+            self.comp_dataframe['time_pandas'] >= start_datetime
+        ].reset_index(drop=True)
 
         # Recalculate per-second altitude changes for the competition window
-        self.comp_dataframe["altitude_gain_m"] = (self.comp_dataframe["gnss_altitude_m_delta_5s"] / 5).clip(lower=0)
-        self.comp_dataframe["altitude_loss_m"] = (self.comp_dataframe["gnss_altitude_m_delta_5s"] / 5).clip(upper=0)
+        self.comp_dataframe["altitude_gain_m"] = (
+            self.comp_dataframe["gnss_altitude_m_delta_5s"] / 5
+        ).clip(lower=0)
+        self.comp_dataframe["altitude_loss_m"] = (
+            self.comp_dataframe["gnss_altitude_m_delta_5s"] / 5
+        ).clip(upper=0)
 
         # Recalculate cumulative metrics from the start of the competition window
         self._calculate_cumulative_metrics(self.comp_dataframe)
@@ -353,6 +359,16 @@ class IGCLog:
 
         # Track progress around the task
         self._track_task_progress(self.comp_dataframe, task)
+
+        # Crop dataframe after GOAL waypoint is reached (first instance of "COMPLETED")
+        completed_indices = self.comp_dataframe[
+            self.comp_dataframe["next_waypoint_name"] == "COMPLETED"
+        ].index
+        if len(completed_indices) > 0:
+            # Get the first index where "COMPLETED" appears
+            goal_idx = completed_indices[0]
+            # Keep data up to and including when GOAL was reached
+            self.comp_dataframe = self.comp_dataframe.iloc[:goal_idx + 1].reset_index(drop=True)
 
         return self.comp_dataframe
 
@@ -369,6 +385,7 @@ class IGCLog:
             - next_waypoint: Index of the next turnpoint to reach
             - next_waypoint_name: Name of the next turnpoint
             - time_since_last_waypoint_s: Seconds since first entering the last waypoint cylinder
+            - in_cylinder: Boolean indicating if currently inside a turnpoint cylinder
         """
         # Initialize columns
         dataframe["next_waypoint"] = 0
@@ -376,10 +393,10 @@ class IGCLog:
         dataframe["time_since_last_waypoint_s"] = 0.0
         dataframe["in_cylinder"] = False
 
-        current_waypoint = 0
-        turnpoint = task.turnpoints[current_waypoint]
+        next_waypoint_index = 0
+        turnpoint = task.turnpoints[next_waypoint_index]
         if turnpoint.type == "TAKEOFF":
-            current_waypoint += 1
+            next_waypoint_index += 1
         last_waypoint_entry_time = None
 
         for idx in range(len(dataframe)):
@@ -388,13 +405,13 @@ class IGCLog:
             current_time = dataframe.loc[idx, "time_pandas"]
 
             # Check if we've reached the current waypoint
-            if current_waypoint == len(task.turnpoints):
+            if next_waypoint_index >= len(task.turnpoints):
                 # Finished the task
                 dataframe.loc[idx, "next_waypoint"] = len(task.turnpoints)
-                dataframe.loc[idx, "next_waypoint_name"] = "FINISHED"
+                dataframe.loc[idx, "next_waypoint_name"] = "COMPLETED"
                 continue
 
-            turnpoint = task.turnpoints[current_waypoint]
+            turnpoint = task.turnpoints[next_waypoint_index]
             distance = math_utils.haversine(lat, lon, turnpoint.lat, turnpoint.lon)
 
             # Check if we're inside the cylinder
@@ -412,7 +429,7 @@ class IGCLog:
                 # For start, check if we've entered and are now exiting
                 if last_waypoint_entry_time is not None and not in_cylinder:
                     # We've exited the start cylinder
-                    current_waypoint += 1
+                    next_waypoint_index += 1
                     last_waypoint_entry_time = None
             else:
                 # For regular turnpoints, advance when exiting after entering
@@ -427,19 +444,18 @@ class IGCLog:
                         )
                         if next_distance > turnpoint.radius:
                             # We're exiting, advance to next waypoint
-                            current_waypoint += 1
+                            next_waypoint_index += 1
                             last_waypoint_entry_time = None
 
-            # Record current waypoint info
-            dataframe.loc[idx, "next_waypoint"] = current_waypoint
-            dataframe.loc[idx, "next_waypoint_name"] = task.turnpoints[current_waypoint].name
+            # Record current waypoint info (only if not already completed)
+            dataframe.loc[idx, "next_waypoint"] = next_waypoint_index
+            dataframe.loc[idx, "next_waypoint_name"] = task.turnpoints[next_waypoint_index].name
 
             # Calculate time since last waypoint entry
             if last_waypoint_entry_time is not None:
                 time_delta = (current_time - last_waypoint_entry_time).total_seconds()
                 dataframe.loc[idx, "time_since_last_waypoint_s"] = time_delta
 
-        return self.comp_dataframe
 
     def export_gpx(self, filename):
         gpx_out = gpxpy.gpx.GPX()

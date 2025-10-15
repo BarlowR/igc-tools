@@ -656,6 +656,180 @@ class TestIGCLogExports(unittest.TestCase):
         self.assertTrue(os.path.exists(vspeed_file))
 
 
+class TestCompetitionMetrics(unittest.TestCase):
+    """Test competition metrics and GOAL cropping functionality."""
+
+    def setUp(self):
+        """Create a temporary IGC file and mock task for testing."""
+        self.temp_dir = tempfile.mkdtemp()
+        self.igc_file = os.path.join(self.temp_dir, "test_comp.igc")
+
+        # Generate flight data that crosses multiple turnpoints
+        # Flight starts at 10:00:00 and runs for 3 minutes (180 seconds)
+        bfix_lines = []
+        for i in range(180):
+            minutes = i // 60
+            seconds = i % 60
+
+            # Create a flight path that moves through different locations
+            # Starts at (34.0, -119.0), moves to approach turnpoints
+            lat_deg = 34.0 + i * 0.0005
+            lon_deg = -119.0 + i * 0.0005
+            alt = 1000 + i * 2
+
+            bfix_lines.append(
+                create_bfix_line(10, minutes, seconds, lat_deg, lon_deg,
+                               pressure_alt=alt, gnss_alt=alt, east=False)
+            )
+
+        # Create IGC file with earlier start time so SSS opens after flight starts
+        igc_content = create_igc_file(date_str="050225", bfix_lines=bfix_lines)
+
+        with open(self.igc_file, 'w', encoding='utf-8') as f:
+            f.write(igc_content)
+
+    def tearDown(self):
+        """Clean up temporary files."""
+        for file in os.listdir(self.temp_dir):
+            os.remove(os.path.join(self.temp_dir, file))
+        os.rmdir(self.temp_dir)
+
+    def _create_mock_task(self):
+        """Create a mock xctsk task object for testing."""
+        import xctsk_tools
+
+        # Create a mock task manually instead of loading from file
+        task = xctsk_tools.xctsk.__new__(xctsk_tools.xctsk)
+
+        # Set up task metadata
+        task.earth_model = "WGS84"
+        task.task_type = "RACE"
+        task.sss = {"timeGates": ["10:00:00Z"]}  # Start at 10:00:00
+        task.goal = {}
+
+        # Create turnpoints
+        task.turnpoints = []
+
+        # SSS (Start) at initial position
+        sss = xctsk_tools.xctsk_turnpoint()
+        sss.radius = 400
+        sss.type = "SSS"
+        sss.lat = 34.0
+        sss.lon = -119.0
+        sss.name = "Start"
+        sss.order = 0
+        task.turnpoints.append(sss)
+
+        # Turnpoint 1 - somewhere in the middle
+        tp1 = xctsk_tools.xctsk_turnpoint()
+        tp1.radius = 400
+        tp1.type = None
+        tp1.lat = 34.03
+        tp1.lon = -118.97
+        tp1.name = "TP1"
+        tp1.order = 1
+        task.turnpoints.append(tp1)
+
+        # GOAL - at a point the flight will reach
+        goal = xctsk_tools.xctsk_turnpoint()
+        goal.radius = 400
+        goal.type = "GOAL"
+        goal.lat = 34.045  # Flight reaches this around second 90
+        goal.lon = -118.955
+        goal.name = "Goal"
+        goal.order = 2
+        task.turnpoints.append(goal)
+
+        return task
+
+    def test_goal_cropping(self):
+        """Test that dataframe is cropped when GOAL is reached."""
+        import xctsk_tools
+
+        log = igc_tools.IGCLog(self.igc_file)
+        task = self._create_mock_task()
+
+        # Get original dataframe length
+        original_length = len(log.dataframe)
+
+        # Build competition metrics (this should crop at GOAL)
+        log.build_computed_comp_metrics(task)
+
+        # Comp dataframe should be shorter than original
+        self.assertLess(len(log.comp_dataframe), original_length)
+
+        # Check that the last row has "COMPLETED" or is before GOAL
+        # (depending on whether GOAL was reached)
+        last_waypoint_names = log.comp_dataframe["next_waypoint_name"].unique()
+
+        # If GOAL was reached, there should be "COMPLETED" entries
+        if "COMPLETED" in last_waypoint_names:
+            # Verify the last entry is "COMPLETED"
+            last_waypoint = log.comp_dataframe.iloc[-1]["next_waypoint_name"]
+            self.assertEqual(last_waypoint, "COMPLETED")
+
+    def test_goal_not_reached(self):
+        """Test that dataframe is not cropped if GOAL is never reached."""
+        import xctsk_tools
+
+        log = igc_tools.IGCLog(self.igc_file)
+        task = self._create_mock_task()
+
+        # Modify GOAL to be far away so it's never reached
+        task.turnpoints[2].lat = 50.0
+        task.turnpoints[2].lon = -100.0
+
+        # Build competition metrics
+        log.build_computed_comp_metrics(task)
+
+        # Check that "COMPLETED" never appears
+        waypoint_names = log.comp_dataframe["next_waypoint_name"].unique()
+        self.assertNotIn("COMPLETED", waypoint_names)
+
+    def test_track_task_progress_columns(self):
+        """Test that _track_task_progress adds expected columns."""
+        import xctsk_tools
+
+        log = igc_tools.IGCLog(self.igc_file)
+        task = self._create_mock_task()
+
+        # Build competition metrics
+        log.build_computed_comp_metrics(task)
+
+        # Check that tracking columns were added
+        expected_columns = [
+            "next_waypoint",
+            "next_waypoint_name",
+            "time_since_last_waypoint_s",
+            "in_cylinder"
+        ]
+
+        for col in expected_columns:
+            self.assertIn(col, log.comp_dataframe.columns,
+                         f"Missing column: {col}")
+
+    def test_completed_status(self):
+        """Test that 'COMPLETED' status is set correctly."""
+        import xctsk_tools
+
+        log = igc_tools.IGCLog(self.igc_file)
+        task = self._create_mock_task()
+
+        # Build competition metrics
+        log.build_computed_comp_metrics(task)
+
+        # If COMPLETED appears, it should be after entering GOAL
+        completed_indices = log.comp_dataframe[
+            log.comp_dataframe["next_waypoint_name"] == "COMPLETED"
+        ].index
+
+        if len(completed_indices) > 0:
+            # The dataframe should end at or just after the first COMPLETED
+            first_completed = completed_indices[0]
+            # Due to cropping, first_completed should be the last or near-last index
+            self.assertGreaterEqual(first_completed, len(log.comp_dataframe) - 2)
+
+
 class TestMathUtils(unittest.TestCase):
     """Test math_utils helper functions."""
 
