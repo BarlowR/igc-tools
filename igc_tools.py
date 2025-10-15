@@ -165,6 +165,7 @@ class IGCLog:
     start_time: datetime.datetime = None
     dataframe: pd.DataFrame = None
     comp_dataframe: pd.DataFrame = None
+    task: xctsk_tools.xctsk = None
     last_hour = None
     pilot_name = None
 
@@ -441,6 +442,8 @@ class IGCLog:
             pandas.DataFrame: A copy of the dataframe filtered from start to GOAL
                              with recalculated cumulative metrics
         """
+        # Store the task in the IGCLog object
+        self.task = task
         # Extract the first time gate from sss.timeGates
         start_time_str = task.sss['timeGates'][0]
 
@@ -544,7 +547,7 @@ class IGCLog:
 
             # Check if we should advance to the next waypoint
             # For SSS, we advance when we EXIT the cylinder
-            # For other turnpoints, we advance when we exit after entering
+            # For other turnpoints, we advance immediately upon ENTERING
             if turnpoint.type == "SSS":
                 # For start, check if we've entered and are now exiting
                 if last_waypoint_entry_time is not None and not in_cylinder:
@@ -552,20 +555,11 @@ class IGCLog:
                     next_waypoint_index += 1
                     last_waypoint_entry_time = None
             else:
-                # For regular turnpoints, advance when exiting after entering
+                # For regular turnpoints, advance immediately when entering
                 if in_cylinder and last_waypoint_entry_time is not None:
-                    # Check if we're about to exit on the next point
-                    if idx < len(dataframe) - 1:
-                        next_distance = math_utils.haversine(
-                            dataframe.loc[idx + 1, "lat"],
-                            dataframe.loc[idx + 1, "lon"],
-                            turnpoint.lat,
-                            turnpoint.lon
-                        )
-                        if next_distance > turnpoint.radius:
-                            # We're exiting, advance to next waypoint
-                            next_waypoint_index += 1
-                            last_waypoint_entry_time = None
+                    # We've just entered, advance to next waypoint
+                    next_waypoint_index += 1
+                    last_waypoint_entry_time = None
 
             # Record current waypoint info (only if not already completed)
             dataframe.loc[idx, "next_waypoint"] = next_waypoint_index
