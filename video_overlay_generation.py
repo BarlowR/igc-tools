@@ -121,14 +121,24 @@ def draw_turnpoint_cylinders(draw, task, bounds, track_width, track_height, curr
     def draw_tp_circle(tp, center_x, center_y, color):
         # Calculate radius in pixels using the padded bounds
         min_lat, max_lat, min_lon, max_lon = bounds
+
+        # Meters per degree at this latitude
         lat_deg_to_m = 111000  # meters per degree latitude
+        lon_deg_to_m = 111000 * np.cos(np.radians(tp.lat))  # meters per degree longitude at this latitude
+
+        # Calculate pixels per degree for both dimensions
         padded_lat_range = max_lat - min_lat
+        padded_lon_range = max_lon - min_lon
         pixel_per_lat_deg = track_height / padded_lat_range if padded_lat_range > 0 else 1
-        radius_pixels = int(tp.radius / lat_deg_to_m * pixel_per_lat_deg)
+        pixel_per_lon_deg = track_width / padded_lon_range if padded_lon_range > 0 else 1
+
+        # Calculate radius in pixels for both directions
+        radius_pixels_y = int(tp.radius / lat_deg_to_m * pixel_per_lat_deg)
+        radius_pixels_x = int(tp.radius / lon_deg_to_m * pixel_per_lon_deg)
 
         draw.ellipse(
-            [center_x - radius_pixels, center_y - radius_pixels,
-             center_x + radius_pixels, center_y + radius_pixels],
+            [center_x - radius_pixels_x, center_y - radius_pixels_y,
+             center_x + radius_pixels_x, center_y + radius_pixels_y],
             outline=color,
             width=2
         )
@@ -197,10 +207,10 @@ def generate_tracklog_overlay_sequence(igc_log, framerate, output_dir, use_task=
     lons = df["lon"].values
 
     # Calculate padded bounds once for all coordinate transformations
-    bounds = calculate_padded_bounds(lats, lons)
+    bounds = calculate_padded_bounds(lats, lons, padding=0.2)
 
     # Full image dimensions
-    image_width = int(600)
+    image_width = int(1200)
     image_height = int(1.5 * image_width)
 
     # Track Overlay dimensions
@@ -239,19 +249,19 @@ def generate_tracklog_overlay_sequence(igc_log, framerate, output_dir, use_task=
 
         # Draw full tracklog in grey
         if len(pixel_coords) > 1:
-            draw.line(pixel_coords, fill=(128, 128, 128, 255), width=2)
+            draw.line(pixel_coords, fill=(128, 128, 128, 255), width=int(image_width/200))
 
         # Draw flown portion in orange
         if flown_idx > 0:
             flown_coords = pixel_coords[:flown_idx + 1]
             if len(flown_coords) > 1:
-                draw.line(flown_coords, fill=(255, 165, 0, 255), width=3)
+                draw.line(flown_coords, fill=(255, 165, 0, 255), width=int(image_width/150))
 
         # Setup Text Overlay Font
-        font = ImageFont.truetype("Arial Black", size=40) 
+        font = ImageFont.truetype("Arial Black", size=int(image_width/15)) 
         altitude = df["gnss_altitude_m"][flown_idx]
-        climb_rate = df["vertical_speed_ms_5s"][flown_idx]
-        speed = df["speed_kmh_5s"][flown_idx]
+        climb_rate = df["vertical_speed_ms_20s"][flown_idx]
+        speed = df["speed_kmh_20s"][flown_idx]
 
         alt_y_offset = image_width + (image_width * 0.1)
         
@@ -259,7 +269,7 @@ def generate_tracklog_overlay_sequence(igc_log, framerate, output_dir, use_task=
 
         draw.text((0, alt_y_offset), f"{altitude}m MSL", font=font, fill="orange")
         
-        draw.text((300, alt_y_offset), f"{climb_rate:.1f}m/s", font=font, fill="orange")
+        draw.text((int(image_width/2), alt_y_offset), f"{climb_rate:.1f}m/s", font=font, fill="orange")
         
         draw.text((0, speed_y_offset), f"{speed:.1f}km/h", font=font, fill="orange")
 
@@ -274,8 +284,9 @@ def generate_tracklog_overlay_sequence(igc_log, framerate, output_dir, use_task=
             os.path.join(output_dir, f"path_animation.gif"),
             save_all=True,
             append_images=images[1:],
-            duration=100,
-            loop=0
+            duration=10,
+            loop=0,
+            disposal=2
         )
 
     return num_frames
