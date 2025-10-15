@@ -404,8 +404,8 @@ class IGCLog:
             lon = dataframe.loc[idx, "lon"]
             current_time = dataframe.loc[idx, "time_pandas"]
 
-            # Check if we've reached the current waypoint
-            if next_waypoint_index >= len(task.turnpoints):
+            # Check if we've reached the ESS waypoint already
+            if next_waypoint_index >= (len(task.turnpoints) -1):
                 # Finished the task
                 dataframe.loc[idx, "next_waypoint"] = len(task.turnpoints)
                 dataframe.loc[idx, "next_waypoint_name"] = "COMPLETED"
