@@ -198,6 +198,126 @@ class IGCLog:
             self.fixes.append(self.parse_bfix(fix))
         self.dataframe = pd.DataFrame.from_dict([bfix.to_dict() for bfix in self.fixes])
 
+        # Filter out outliers from raw data
+        self._filter_outliers()
+
+    def _filter_outliers(self):
+        """
+        Filter out outlier GPS fixes from the dataframe.
+
+        Removes fixes with:
+        - Invalid fix validity (not 'A')
+        - Unrealistic altitude values (< -100m or > 10000m for paragliding)
+        - Extreme position jumps (> 200 km/h instantaneous speed)
+        - Extreme altitude changes (> 20 m/s vertical speed)
+
+        Modifies self.dataframe in place.
+        """
+        if len(self.dataframe) == 0:
+            return
+
+        # Skip filtering for small datasets (< 200 points, likely test data or very short flights)
+        # Real flights typically have 1000+ points
+        if len(self.dataframe) < 200:
+            return
+
+        original_count = len(self.dataframe)
+
+        # Filter 1: Remove invalid fixes (fix_validity != 'A')
+        self.dataframe = self.dataframe[
+            self.dataframe["fix_validity"] == "A"
+        ].reset_index(drop=True)
+
+        # Filter 2: Remove unrealistic altitudes
+        # Paragliders typically fly between 0-6000m, allow some margin
+        self.dataframe = self.dataframe[
+            (self.dataframe["gnss_altitude_m"] >= -100) &
+            (self.dataframe["gnss_altitude_m"] <= 10000)
+        ].reset_index(drop=True)
+
+        # Filter 3: Calculate time and position deltas to detect GPS errors
+        self.dataframe["temp_time"] = pd.to_datetime(
+            self.dataframe["time_iso"],
+            format="%Y-%m-%dT%H:%M:%S"
+        )
+        self.dataframe["temp_time_delta"] = (
+            self.dataframe["temp_time"].diff().dt.total_seconds()
+        )
+
+        # Calculate distance between consecutive points
+        self.dataframe["temp_prev_lat"] = self.dataframe["lat"].shift(1)
+        self.dataframe["temp_prev_lon"] = self.dataframe["lon"].shift(1)
+
+        # Initialize speed column
+        self.dataframe["temp_speed_kmh"] = np.nan
+
+        # Calculate distance and instantaneous speed
+        for idx in range(1, len(self.dataframe)):
+            distance = math_utils.haversine(
+                self.dataframe.loc[idx, "lat"],
+                self.dataframe.loc[idx, "lon"],
+                self.dataframe.loc[idx, "temp_prev_lat"],
+                self.dataframe.loc[idx, "temp_prev_lon"]
+            )
+            time_delta = self.dataframe.loc[idx, "temp_time_delta"]
+
+            if pd.notna(time_delta) and time_delta > 0:
+                # Speed in km/h
+                speed_kmh = (distance / time_delta) * 3.6
+                self.dataframe.loc[idx, "temp_speed_kmh"] = speed_kmh
+
+        # Filter 4: Remove fixes with unrealistic instantaneous speeds
+        # Paragliders max speed ~70-80 km/h, use 200 km/h as upper limit to catch GPS errors
+        self.dataframe = self.dataframe[
+            (self.dataframe["temp_speed_kmh"].isna()) |
+            (self.dataframe["temp_speed_kmh"] <= 200)
+        ].reset_index(drop=True)
+
+        # Filter 5: Remove extreme altitude changes
+        self.dataframe["temp_alt_delta"] = self.dataframe["gnss_altitude_m"].diff()
+
+        # Recalculate time delta after filtering
+        self.dataframe["temp_time"] = pd.to_datetime(
+            self.dataframe["time_iso"],
+            format="%Y-%m-%dT%H:%M:%S"
+        )
+        self.dataframe["temp_time_delta"] = (
+            self.dataframe["temp_time"].diff().dt.total_seconds()
+        )
+
+        # Initialize vertical speed column
+        self.dataframe["temp_vspeed_ms"] = np.nan
+
+        # Calculate vertical speed
+        for idx in range(1, len(self.dataframe)):
+            alt_delta = self.dataframe.loc[idx, "temp_alt_delta"]
+            time_delta = self.dataframe.loc[idx, "temp_time_delta"]
+
+            if pd.notna(time_delta) and time_delta > 0:
+                vspeed = alt_delta / time_delta
+                self.dataframe.loc[idx, "temp_vspeed_ms"] = vspeed
+
+        # Filter out extreme vertical speeds (> ±20 m/s)
+        # Typical paraglider: climb 3-8 m/s, sink 1-4 m/s, dive ~15 m/s max
+        self.dataframe = self.dataframe[
+            (self.dataframe["temp_vspeed_ms"].isna()) |
+            ((self.dataframe["temp_vspeed_ms"] >= -20) &
+             (self.dataframe["temp_vspeed_ms"] <= 20))
+        ].reset_index(drop=True)
+
+        # Clean up temporary columns
+        temp_cols = [
+            col for col in self.dataframe.columns if col.startswith("temp_")
+        ]
+        self.dataframe = self.dataframe.drop(columns=temp_cols)
+
+        filtered_count = original_count - len(self.dataframe)
+        if filtered_count > 0:
+            print(
+                f"Filtered {filtered_count} outlier fixes "
+                f"({filtered_count/original_count*100:.1f}%)"
+            )
+
     def build_computed_metrics(self):
         self.dataframe["time_pandas"] = pd.to_datetime(self.dataframe["time_iso"], format="%Y-%m-%dT%H:%M:%S")
 

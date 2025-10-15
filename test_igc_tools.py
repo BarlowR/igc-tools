@@ -665,16 +665,16 @@ class TestCompetitionMetrics(unittest.TestCase):
         self.igc_file = os.path.join(self.temp_dir, "test_comp.igc")
 
         # Generate flight data that crosses multiple turnpoints
-        # Flight starts at 10:00:00 and runs for 3 minutes (180 seconds)
+        # Flight starts at 10:00:00 and runs for 5 minutes (300 seconds)
         bfix_lines = []
-        for i in range(180):
+        for i in range(300):
             minutes = i // 60
             seconds = i % 60
 
             # Create a flight path that moves through different locations
             # Starts at (34.0, -119.0), moves to approach turnpoints
-            lat_deg = 34.0 + i * 0.0005
-            lon_deg = -119.0 + i * 0.0005
+            lat_deg = 34.0 + i * 0.0003  # Slower movement to avoid outlier filtering
+            lon_deg = -119.0 + i * 0.0003
             alt = 1000 + i * 2
 
             bfix_lines.append(
@@ -768,16 +768,17 @@ class TestCompetitionMetrics(unittest.TestCase):
             last_waypoint = log.comp_dataframe.iloc[-1]["next_waypoint_name"]
             self.assertEqual(last_waypoint, "COMPLETED")
 
-    def test_goal_not_reached(self):
+    def test_ess_not_reached(self):
         """Test that dataframe is not cropped if GOAL is never reached."""
         import xctsk_tools
 
         log = igc_tools.IGCLog(self.igc_file)
         task = self._create_mock_task()
 
-        # Modify GOAL to be far away so it's never reached
-        task.turnpoints[2].lat = 50.0
-        task.turnpoints[2].lon = -100.0
+        # Modify ESS to be extremely far away so it's never reached
+        # Flight only moves to approximately (34.09, -118.91) in 300 seconds
+        task.turnpoints[1].lat = 35.0
+        task.turnpoints[1].lon = -115.0
 
         # Build competition metrics
         log.build_computed_comp_metrics(task)
