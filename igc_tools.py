@@ -168,6 +168,7 @@ class IGCLog:
     task: xctsk_tools.xctsk = None
     last_hour = None
     pilot_name = None
+    stats = {}
 
     def __init__(self, file_path: str):
         """Build an IGCLog file from a given file path"""
@@ -402,6 +403,28 @@ class IGCLog:
             ]
         )
 
+        self.calculate_stats()
+
+    def calculate_stats(self, comp = False):
+        prefix = "comp_" if comp else ""
+        df = self.comp_dataframe if comp else self.dataframe
+        self.stats[f"{prefix}total_distance"] = df.iloc[-1]["cumulative_distance"]
+        self.stats[f"{prefix}total_time_climbing_s"] = df.iloc[-1]["cumulative_time_climbing_s"]
+        self.stats[f"{prefix}total_time_gliding_s"] = df.iloc[-1]["cumulative_time_gliding_s"]
+        self.stats[f"{prefix}total_time_stopped_and_not_climbing_s"] = df.iloc[-1]["stopped_and_not_climbing_s"]
+        self.stats[f"{prefix}total_time_stopped_and_climbing_s"] = df.iloc[-1]["stopped_and_climbing_s"]
+        self.stats[f"{prefix}total_time_climbing_on_glide_s"] = df.iloc[-1]["climbing_on_glide_s"]
+        self.stats[f"{prefix}total_time_sinking_on_glide_s"] = df.iloc[-1]["sinking_on_glide_s"]
+        self.stats[f"{prefix}seconds_maintaining"] = len(df[(df["vertical_speed_ms_5s"] > -0.5) & (df["vertical_speed_ms_5s"] < 0.5)])
+        self.stats[f"{prefix}seconds_1ms_climb"] = len(df[(df["vertical_speed_ms_5s"] >= 0.5) & (df["vertical_speed_ms_5s"] < 1.5)])
+        self.stats[f"{prefix}seconds_2ms_climb"] = len(df[(df["vertical_speed_ms_5s"] >= 1.5) & (df["vertical_speed_ms_5s"] < 2.5)])
+        self.stats[f"{prefix}seconds_3ms_climb"] = len(df[(df["vertical_speed_ms_5s"] >= 2.5) & (df["vertical_speed_ms_5s"] < 3.5)])
+        self.stats[f"{prefix}seconds_4ms_climb"] = len(df[(df["vertical_speed_ms_5s"] >= 3.5) & (df["vertical_speed_ms_5s"] < 4.5)])
+        self.stats[f"{prefix}seconds_5ms_climb"] = len(df[(df["vertical_speed_ms_5s"] >= 4.5) & (df["vertical_speed_ms_5s"] < 5.5)])
+        self.stats[f"{prefix}seconds_>5ms_climb"] = len(df[df["vertical_speed_ms_5s"] >= 5.5])
+        if comp:
+            self.stats["completed"] = (df["next_waypoint_name"] == "COMPLETED").any()
+
     def _calculate_cumulative_metrics(self, df):
         """
         Calculate cumulative metrics for a dataframe.
@@ -493,7 +516,7 @@ class IGCLog:
             # Keep data up to and including when GOAL was reached
             self.comp_dataframe = self.comp_dataframe.iloc[:goal_idx + 1].reset_index(drop=True)
 
-        return self.comp_dataframe
+        self.calculate_stats(comp=True)
 
     def _track_task_progress(self, dataframe, task):
         """
@@ -680,8 +703,6 @@ class IGCLog:
         # gps altitude
         fix.gnss_altitude_m = int(line[30:35])
         return fix
-
-
 
 
 if __name__ == "__main__":
