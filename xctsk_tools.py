@@ -44,13 +44,12 @@ class xctsk_turnpoint:
 class xctsk:
     """xctsk Data Type from XContest
     """
-    earth_model: str = ""
-    goal = {}
-    sss = {}
-    task_type:str = ""
-    turnpoints = []
-
     def __init__(self, path):
+        self.earth_model: str = ""
+        self.goal = {}
+        self.sss = {}
+        self.task_type:str = ""
+        self.turnpoints = []
         self.ingest_xctsk(path)
 
     def ingest_xctsk(self, xctsk_file: str):

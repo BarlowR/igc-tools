@@ -157,21 +157,19 @@ def thermal_color_scale(speed):
 
 @dataclass
 class IGCLog:
-    file_path: str
-    header_info = None
-    # TODO: Parse headers. Specifically datetime so we can do timestamped kml tracks
-    footer_info = None
-    fixes: None
-    start_time: datetime.datetime = None
-    dataframe: pd.DataFrame = None
-    comp_dataframe: pd.DataFrame = None
-    task: xctsk_tools.xctsk = None
-    last_hour = None
-    pilot_name = None
-    stats = {}
-
     def __init__(self, file_path: str):
         """Build an IGCLog file from a given file path"""
+        self.header_info = None
+        self.footer_info = None
+        self.fixes: None = None
+        self.start_time: datetime.datetime = None
+        self.dataframe: pd.DataFrame = None
+        self.comp_dataframe: pd.DataFrame = None
+        self.task: xctsk_tools.xctsk = None
+        self.last_hour = None
+        self.pilot_name = None
+        self.stats = {}
+
         self.file_path = file_path
         self.load_from_file()
         self.build_computed_metrics()
@@ -408,6 +406,11 @@ class IGCLog:
     def calculate_stats(self, comp = False):
         prefix = "comp_" if comp else ""
         df = self.comp_dataframe if comp else self.dataframe
+        if len(df) == 0:
+            return
+
+        self.stats[f"{prefix}total_meters_climbed"] = df["total_meters_climbed"].iloc[-1]
+        self.stats[f"{prefix}average_altitude"] = df["gnss_altitude_m"].mean()
         self.stats[f"{prefix}total_distance"] = df.iloc[-1]["cumulative_distance"]
         self.stats[f"{prefix}total_time_climbing_s"] = df.iloc[-1]["cumulative_time_climbing_s"]
         self.stats[f"{prefix}total_time_gliding_s"] = df.iloc[-1]["cumulative_time_gliding_s"]
@@ -415,15 +418,32 @@ class IGCLog:
         self.stats[f"{prefix}total_time_stopped_and_climbing_s"] = df.iloc[-1]["stopped_and_climbing_s"]
         self.stats[f"{prefix}total_time_climbing_on_glide_s"] = df.iloc[-1]["climbing_on_glide_s"]
         self.stats[f"{prefix}total_time_sinking_on_glide_s"] = df.iloc[-1]["sinking_on_glide_s"]
+        
         self.stats[f"{prefix}seconds_maintaining"] = len(df[(df["vertical_speed_ms_5s"] > -0.5) & (df["vertical_speed_ms_5s"] < 0.5)])
-        self.stats[f"{prefix}seconds_1ms_climb"] = len(df[(df["vertical_speed_ms_5s"] >= 0.5) & (df["vertical_speed_ms_5s"] < 1.5)])
-        self.stats[f"{prefix}seconds_2ms_climb"] = len(df[(df["vertical_speed_ms_5s"] >= 1.5) & (df["vertical_speed_ms_5s"] < 2.5)])
-        self.stats[f"{prefix}seconds_3ms_climb"] = len(df[(df["vertical_speed_ms_5s"] >= 2.5) & (df["vertical_speed_ms_5s"] < 3.5)])
-        self.stats[f"{prefix}seconds_4ms_climb"] = len(df[(df["vertical_speed_ms_5s"] >= 3.5) & (df["vertical_speed_ms_5s"] < 4.5)])
-        self.stats[f"{prefix}seconds_5ms_climb"] = len(df[(df["vertical_speed_ms_5s"] >= 4.5) & (df["vertical_speed_ms_5s"] < 5.5)])
         self.stats[f"{prefix}seconds_>5ms_climb"] = len(df[df["vertical_speed_ms_5s"] >= 5.5])
+        self.stats[f"{prefix}seconds_climbing_total"] = len(df[df["vertical_speed_ms_5s"] >= 0.5])
+        self.stats[f"{prefix}altitude_gain_total"] = df[(df["vertical_speed_ms_5s"] >= 0.5)]["vertical_speed_ms_5s"].sum()
+        self.stats[f"{prefix}altitude_>5ms_climb"] = df[df["vertical_speed_ms_5s"] >= 5.5]["vertical_speed_ms_5s"].sum()
+        self.stats[f"{prefix}percentage_time_>5ms_climb"] = self.stats[f"{prefix}seconds_>5ms_climb"] / self.stats[f"{prefix}seconds_climbing_total"]
+
+        self.stats[f"{prefix}average_climb_rate"] = df[df["vertical_speed_ms_5s"] > 0.5]["vertical_speed_ms_5s"].sum() / len(df[df["vertical_speed_ms_5s"] > 0.5])
+
+        for climb_rate in range(1, 6):
+            self.stats[f"{prefix}seconds_{climb_rate}ms_climb"] = len(df[(df["vertical_speed_ms_5s"] >= (climb_rate - 0.5)) & (df["vertical_speed_ms_5s"] < (climb_rate + 0.5))])
+            self.stats[f"{prefix}altitude_{climb_rate}ms_climb"] = df[(df["vertical_speed_ms_5s"] >= (climb_rate - 0.5)) & (df["vertical_speed_ms_5s"] < (climb_rate + 0.5))]["vertical_speed_ms_5s"].sum()
+            self.stats[f"{prefix}percentage_altitude_{climb_rate}ms_climb"] = self.stats[f"{prefix}altitude_{climb_rate}ms_climb"] / self.stats[f"{prefix}altitude_gain_total"]
+            self.stats[f"{prefix}percentage_time_{climb_rate}ms_climb"] = self.stats[f"{prefix}seconds_{climb_rate}ms_climb"] / self.stats[f"{prefix}seconds_climbing_total"]
+        
         if comp:
             self.stats["completed"] = (df["next_waypoint_name"] == "COMPLETED").any()
+            if self.stats["completed"]:
+                # Extract the time when task was completed
+                completion_row = df[df["next_waypoint_name"] == "COMPLETED"].iloc[0]
+                end_time = completion_row["time_pandas"]
+                start_time = df["time_pandas"].iloc[0]
+                self.stats["completion_time"] = (end_time - start_time).total_seconds()
+            else:
+                self.stats["completion_time"] = None
 
     def _calculate_cumulative_metrics(self, df):
         """
@@ -544,6 +564,7 @@ class IGCLog:
         if turnpoint.type == "TAKEOFF":
             next_waypoint_index += 1
         last_waypoint_entry_time = None
+
 
         for idx in range(len(dataframe)):
             lat = dataframe.loc[idx, "lat"]
