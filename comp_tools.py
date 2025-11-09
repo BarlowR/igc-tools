@@ -11,7 +11,6 @@ import itertools
 COMP_SUBSET = {
     "name" : (None, "Pilot Name"),
     "completion_time" : ("least_positive", "Completion Time (s)"),
-    "comp_average_altitude" : ("most_positive", "Average Altitude (m)"),
     "comp_total_time_climbing_s" : ("least_positive", "Total Climbing (s) "),
     "comp_average_climb_rate" : ("most_positive", "Average Climb Rate (m/s)"),
     "comp_total_meters_climbed" : (None, "Total Meters Climbed (m)"),
@@ -20,6 +19,7 @@ COMP_SUBSET = {
     "comp_total_distance" : ("least_positive", "Total Distance Flown (m)"),
     "comp_total_time_gliding_s" : ("least_positive", "Total Gliding (s)"),
     "comp_total_time_climbing_on_glide_s" : ("most_positive", "Climbing on Glide (s)"),
+    "comp_average_altitude" : ("most_positive", "Average Altitude (m)"),
 }
 class CompetitionFlight():
     def __init__(self, xctsk_filepath):
