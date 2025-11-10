@@ -417,7 +417,9 @@ class IGCLog:
         self.stats[f"{prefix}total_time_stopped_and_not_climbing_s"] = df.iloc[-1]["stopped_and_not_climbing_s"]
         self.stats[f"{prefix}total_time_stopped_and_climbing_s"] = df.iloc[-1]["stopped_and_climbing_s"]
         self.stats[f"{prefix}total_time_climbing_on_glide_s"] = df.iloc[-1]["climbing_on_glide_s"]
+        self.stats[f"{prefix}percentage_time_climbing_on_glide_s"] = ( self.stats[f"{prefix}total_time_climbing_on_glide_s"] * 100) / self.stats[f"{prefix}total_time_gliding_s"]
         self.stats[f"{prefix}total_time_sinking_on_glide_s"] = df.iloc[-1]["sinking_on_glide_s"]
+        self.stats[f"{prefix}percentage_time_sinking_on_glide_s"] = ( self.stats[f"{prefix}total_time_sinking_on_glide_s"] * 100) / self.stats[f"{prefix}total_time_gliding_s"]
         
         self.stats[f"{prefix}seconds_maintaining"] = len(df[(df["vertical_speed_ms_5s"] > -0.5) & (df["vertical_speed_ms_5s"] < 0.5)])
         self.stats[f"{prefix}seconds_>5ms_climb"] = len(df[df["vertical_speed_ms_5s"] >= 5.5])

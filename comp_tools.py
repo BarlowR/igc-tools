@@ -18,7 +18,7 @@ COMP_SUBSET = {
     "comp_total_time_stopped_and_not_climbing_s" : ("most_negative", "Stopped and Not Climbing (s)"),
     "comp_total_distance" : ("least_positive", "Total Distance Flown (m)"),
     "comp_total_time_gliding_s" : ("least_positive", "Total Gliding (s)"),
-    "comp_total_time_climbing_on_glide_s" : ("most_positive", "Climbing on Glide (s)"),
+    "comp_percentage_time_climbing_on_glide_s" : ("most_positive", "Climbing on Glide (%)"),
     "comp_average_altitude" : ("most_positive", "Average Altitude (m)"),
 }
 class CompetitionFlight():
@@ -33,79 +33,102 @@ class CompetitionFlight():
         print(f"Loaded {new_pilot.pilot_name}")
 
     def plot_climb_rates(self, pilot_list = None):
-        fig = go.Figure()
+        """
+        Create climb rate distribution plots.
+        Returns a tuple of (completed_fig, incomplete_fig) if both groups exist,
+        otherwise returns a single figure.
+        """
         if pilot_list is None:
             pilot_list = list(self.pilot_list.keys())
 
-        markers = itertools.cycle(['circle', 'cross', 'diamond', 'square', 'x'])
-        colors = itertools.cycle(['red', 'orange', 'green', 'blue', 'violet'])
+        # Split pilots into completed and incomplete
+        completed_pilots = [p for p in pilot_list if self.pilot_list[p].stats.get('completed', False)]
+        incomplete_pilots = [p for p in pilot_list if not self.pilot_list[p].stats.get('completed', False)]
 
         climb_rate_label = ["1ms", "2ms", "3ms", "4ms", "5ms", ">5ms"]
-        # Use numeric x-axis positions (1, 2, 3, 4, 5, 6)
         x_positions = [1, 2, 3, 4, 5, 6]
 
-        for pilot in pilot_list:
-            pilot_stats = self.pilot_list[pilot].stats
-            climb_rates = []
-            c = next(colors)
-            m = next(markers)
+        def create_figure(pilot_list, title=None):
+            """Helper function to create a climb rate figure for a list of pilots"""
+            fig = go.Figure()
+            markers = itertools.cycle(['circle', 'cross', 'diamond', 'square', 'x'])
+            colors = itertools.cycle(['red', 'orange', 'green', 'blue', 'violet'])
 
-            for climb_rate in climb_rate_label:
-                climb_rates.append(pilot_stats[f"comp_percentage_time_{climb_rate}_climb"] * 100)
+            for pilot in pilot_list:
+                pilot_stats = self.pilot_list[pilot].stats
+                climb_rates = []
+                c = next(colors)
+                m = next(markers)
 
-            # Add line trace - grouped with pilot, hidden from legend
-            fig.add_trace(go.Scatter(
-                x=x_positions,
-                y=climb_rates,
-                mode='lines',
-                line=dict(color=c, width=2),
-                opacity=0.4,
-                showlegend=False,
-                hoverinfo='skip',
-                legendgroup=pilot
-            ))
+                for climb_rate in climb_rate_label:
+                    climb_rates.append(pilot_stats[f"comp_percentage_time_{climb_rate}_climb"] * 100)
 
-            # Add scatter trace with markers - main legend entry
-            fig.add_trace(go.Scatter(
-                x=x_positions,
-                y=climb_rates,
-                mode='markers',
-                marker=dict(color=c, size=10, symbol=m),
-                name=pilot,
-                opacity=1.0,
-                legendgroup=pilot
-            ))
+                # Add line trace
+                fig.add_trace(go.Scatter(
+                    x=x_positions,
+                    y=climb_rates,
+                    mode='lines',
+                    line=dict(color=c, width=2),
+                    opacity=0.4,
+                    showlegend=False,
+                    hoverinfo='skip',
+                    legendgroup=pilot
+                ))
 
-            # Add vertical line for average climb rate
-            avg_climb_rate = float(pilot_stats[f"comp_average_climb_rate"])
+                # Add scatter trace with markers
+                fig.add_trace(go.Scatter(
+                    x=x_positions,
+                    y=climb_rates,
+                    mode='markers',
+                    marker=dict(color=c, size=10, symbol=m),
+                    name=pilot,
+                    opacity=1.0,
+                    legendgroup=pilot
+                ))
 
-            # Create a vertical line using a scatter trace for proper legend grouping
-            fig.add_trace(go.Scatter(
-                x=[avg_climb_rate, avg_climb_rate],
-                y=[0, 100],
-                mode='lines',
-                line=dict(color=c, width=2, dash='dash'),
-                opacity=0.8,
-                showlegend=False,
-                hoverinfo='skip',
-                legendgroup=pilot
-            ))
+                # Add vertical line for average climb rate
+                avg_climb_rate = float(pilot_stats[f"comp_average_climb_rate"])
+                fig.add_trace(go.Scatter(
+                    x=[avg_climb_rate, avg_climb_rate],
+                    y=[0, 100],
+                    mode='lines',
+                    line=dict(color=c, width=2, dash='dash'),
+                    opacity=0.8,
+                    showlegend=False,
+                    hoverinfo='skip',
+                    legendgroup=pilot
+                ))
 
-        # Update layout with custom tick labels
-        fig.update_layout(
-            xaxis_title="Climb Rate",
-            yaxis_title="Percentage of Time Spent",
-            hovermode='closest',
-            legend=dict(orientation="v", title="Click to toggle pilots"),
-            xaxis=dict(
-                tickmode='array',
-                tickvals=x_positions,
-                ticktext=climb_rate_label
-            ),
-            height=600
-        )
+            fig.update_layout(
+                title=title,
+                xaxis_title="Climb Rate",
+                yaxis_title="Percentage of Time Spent",
+                hovermode='closest',
+                legend=dict(orientation="v", title="Click to toggle pilots"),
+                xaxis=dict(
+                    tickmode='array',
+                    tickvals=x_positions,
+                    ticktext=climb_rate_label
+                ),
+                height=500
+            )
+            return fig
 
-        return fig
+        # Determine what to return based on what data we have
+        has_completed = len(completed_pilots) > 0
+        has_incomplete = len(incomplete_pilots) > 0
+
+        if has_completed and has_incomplete:
+            # Return both figures as a tuple
+            completed_fig = create_figure(completed_pilots, title="Climb Rate Distribution, Completed Task")
+            incomplete_fig = create_figure(incomplete_pilots, title="Climb Rate Distribution, Did Not Complete Task")
+            return (completed_fig, incomplete_fig)
+        elif has_completed:
+            # Return only completed figure
+            return create_figure(completed_pilots, title="Climb Rate Distribution")
+        else:
+            # Return only incomplete figure
+            return create_figure(incomplete_pilots, title="Climb Rate Distribution")
     
     def save_stats_csv(self, pilot_list = None, subset = True, savepath="stats.csv"):
         if pilot_list is None:
@@ -299,6 +322,31 @@ class CompetitionFlight():
         return fig
 
 def generate_html_page(stats_table, climb_rate_plot, output):
+    # Check if climb_rate_plot is a tuple (completed and incomplete) or single figure
+    is_split = isinstance(climb_rate_plot, tuple)
+
+    if is_split:
+        completed_plot, incomplete_plot = climb_rate_plot
+        climb_section = f"""
+        <div id="climb_rates_completed"></div>
+        <div id="climb_rates_incomplete"></div>
+        """
+        climb_script = f"""
+            var climb_completed_data = {completed_plot.to_json()};
+            Plotly.newPlot('climb_rates_completed', climb_completed_data.data, climb_completed_data.layout);
+
+            var climb_incomplete_data = {incomplete_plot.to_json()};
+            Plotly.newPlot('climb_rates_incomplete', climb_incomplete_data.data, climb_incomplete_data.layout);
+        """
+    else:
+        climb_section = """
+        <div id="climb_rates"></div>
+        """
+        climb_script = f"""
+            var climb_data = {climb_rate_plot.to_json()};
+            Plotly.newPlot('climb_rates', climb_data.data, climb_data.layout);
+        """
+
     # Create HTML with both figures
     html_content = f"""
     <!DOCTYPE html>
@@ -312,8 +360,7 @@ def generate_html_page(stats_table, climb_rate_plot, output):
         <h1>Competition Analysis Report</h1>
         <h2>Pilot Statistics</h2>
         <div id="stats_table"></div>
-        <h2>Climb Rate Distribution</h2>
-        <div id="climb_rates"></div>
+        {climb_section}
         <style>
             .modebar {{ display: none !important; }}
             h1 {{text-align: center;}}
@@ -324,8 +371,7 @@ def generate_html_page(stats_table, climb_rate_plot, output):
             var stats_data = {stats_table.to_json()};
             Plotly.newPlot('stats_table', stats_data.data, stats_data.layout);
 
-            var climb_data = {climb_rate_plot.to_json()};
-            Plotly.newPlot('climb_rates', climb_data.data, climb_data.layout);
+            {climb_script}
         </script>
     </body>
     </html>
