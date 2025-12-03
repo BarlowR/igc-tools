@@ -554,7 +554,6 @@ class TestIGCLogMetrics(unittest.TestCase):
         vspeed = log.dataframe['vertical_speed_ms_5s'].dropna()
         self.assertTrue(len(vspeed) > 0)
         # Our test data climbs slowly, so should be positive and small
-        print(vspeed)
         self.assertTrue((vspeed > -5).all())
         self.assertTrue((vspeed < 10).all())
 

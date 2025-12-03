@@ -406,6 +406,31 @@ class IGCLog:
     def calculate_stats(self, comp = False):
         prefix = "comp_" if comp else ""
         df = self.comp_dataframe if comp else self.dataframe
+        
+        self.stats[f"{prefix}total_meters_climbed"] = 0
+        self.stats[f"{prefix}average_altitude"] = 0
+        self.stats[f"{prefix}total_distance"] = 0
+        self.stats[f"{prefix}total_time_climbing_s"] = 0
+        self.stats[f"{prefix}total_time_gliding_s"] = 0
+        self.stats[f"{prefix}total_time_stopped_and_not_climbing_s"] = 0
+        self.stats[f"{prefix}total_time_stopped_and_climbing_s"] = 0
+        self.stats[f"{prefix}total_time_climbing_on_glide_s"] = 0
+        self.stats[f"{prefix}percentage_time_climbing_on_glide_s"] = 0
+        self.stats[f"{prefix}total_time_sinking_on_glide_s"] = 0
+        self.stats[f"{prefix}percentage_time_sinking_on_glide_s"] = 0
+        self.stats[f"{prefix}seconds_maintaining"]  = 0
+        self.stats[f"{prefix}seconds_>5ms_climb"] = 0
+        self.stats[f"{prefix}altitude_gain_total"]  = 0
+        self.stats[f"{prefix}altitude_>5ms_climb"] = 0
+        self.stats[f"{prefix}percentage_time_>5ms_climb"] = 0
+        self.stats[f"{prefix}average_climb_rate"]  = 0
+
+        for climb_rate in range(1, 6):
+            self.stats[f"{prefix}seconds_{climb_rate}ms_climb"] =  0
+            self.stats[f"{prefix}altitude_{climb_rate}ms_climb"] =  0
+            self.stats[f"{prefix}percentage_altitude_{climb_rate}ms_climb"] =  0
+            self.stats[f"{prefix}percentage_time_{climb_rate}ms_climb"] = 0
+       
         if len(df) == 0:
             return
 
@@ -423,18 +448,20 @@ class IGCLog:
         
         self.stats[f"{prefix}seconds_maintaining"] = len(df[(df["vertical_speed_ms_5s"] > -0.5) & (df["vertical_speed_ms_5s"] < 0.5)])
         self.stats[f"{prefix}seconds_>5ms_climb"] = len(df[df["vertical_speed_ms_5s"] >= 5.5])
-        self.stats[f"{prefix}seconds_climbing_total"] = len(df[df["vertical_speed_ms_5s"] >= 0.5])
-        self.stats[f"{prefix}altitude_gain_total"] = df[(df["vertical_speed_ms_5s"] >= 0.5)]["vertical_speed_ms_5s"].sum()
+        seconds_climbing = len(df[df["vertical_speed_ms_5s"] >= 0.5])
+        self.stats[f"{prefix}seconds_climbing_total"] = seconds_climbing
+        alt_gain = df[(df["vertical_speed_ms_5s"] >= 0.5)]["vertical_speed_ms_5s"].sum()
+        self.stats[f"{prefix}altitude_gain_total"] = alt_gain
         self.stats[f"{prefix}altitude_>5ms_climb"] = df[df["vertical_speed_ms_5s"] >= 5.5]["vertical_speed_ms_5s"].sum()
-        self.stats[f"{prefix}percentage_time_>5ms_climb"] = self.stats[f"{prefix}seconds_>5ms_climb"] / self.stats[f"{prefix}seconds_climbing_total"]
+        self.stats[f"{prefix}percentage_time_>5ms_climb"] = (self.stats[f"{prefix}seconds_>5ms_climb"] / seconds_climbing) if seconds_climbing else 0
 
-        self.stats[f"{prefix}average_climb_rate"] = df[df["vertical_speed_ms_5s"] > 0.5]["vertical_speed_ms_5s"].sum() / len(df[df["vertical_speed_ms_5s"] > 0.5])
+        self.stats[f"{prefix}average_climb_rate"] = (df[df["vertical_speed_ms_5s"] > 0.5]["vertical_speed_ms_5s"].sum() / len(df[df["vertical_speed_ms_5s"] > 0.5])) if len(df[df["vertical_speed_ms_5s"] > 0.5]) > 0 else 0
 
         for climb_rate in range(1, 6):
             self.stats[f"{prefix}seconds_{climb_rate}ms_climb"] = len(df[(df["vertical_speed_ms_5s"] >= (climb_rate - 0.5)) & (df["vertical_speed_ms_5s"] < (climb_rate + 0.5))])
             self.stats[f"{prefix}altitude_{climb_rate}ms_climb"] = df[(df["vertical_speed_ms_5s"] >= (climb_rate - 0.5)) & (df["vertical_speed_ms_5s"] < (climb_rate + 0.5))]["vertical_speed_ms_5s"].sum()
-            self.stats[f"{prefix}percentage_altitude_{climb_rate}ms_climb"] = self.stats[f"{prefix}altitude_{climb_rate}ms_climb"] / self.stats[f"{prefix}altitude_gain_total"]
-            self.stats[f"{prefix}percentage_time_{climb_rate}ms_climb"] = self.stats[f"{prefix}seconds_{climb_rate}ms_climb"] / self.stats[f"{prefix}seconds_climbing_total"]
+            self.stats[f"{prefix}percentage_altitude_{climb_rate}ms_climb"] = (self.stats[f"{prefix}altitude_{climb_rate}ms_climb"] / alt_gain ) if alt_gain else 0
+            self.stats[f"{prefix}percentage_time_{climb_rate}ms_climb"] = (self.stats[f"{prefix}seconds_{climb_rate}ms_climb"] / seconds_climbing) if seconds_climbing else 0
         
         if comp:
             self.stats["completed"] = (df["next_waypoint_name"] == "COMPLETED").any()
