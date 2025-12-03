@@ -2,8 +2,8 @@
 import os
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
-import igc_tools
-import xctsk_tools
+import igc_lib
+import xctsk_lib
 
 
 def calculate_padded_bounds(lats, lons, padding=0.1):
@@ -311,10 +311,10 @@ if __name__ == "__main__":
 
     # Load IGC file
     print(f"Loading IGC file: {args.in_file}")
-    log = igc_tools.IGCLog(args.in_file)
+    log = igc_lib.IGCLog(args.in_file)
     task = None
     if args.in_task:
-        task = xctsk_tools.xctsk(args.in_task)
+        task = xctsk_lib.xctsk(args.in_task)
         log.build_computed_comp_metrics(task)
 
     # Generate image sequence

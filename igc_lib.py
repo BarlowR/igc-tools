@@ -9,9 +9,8 @@ import pandas as pd
 import gpxpy
 from simplekml import Kml, Color
 
-import igc_tools
-import math_utils
-import xctsk_tools
+import utils.math_utils as math_utils
+import xctsk_lib
 
 MS_TO_KMH = 3.6
 
@@ -165,7 +164,7 @@ class IGCLog:
         self.start_time: datetime.datetime = None
         self.dataframe: pd.DataFrame = None
         self.comp_dataframe: pd.DataFrame = None
-        self.task: xctsk_tools.xctsk = None
+        self.task: xctsk_lib.xctsk = None
         self.last_hour = None
         self.pilot_name = None
         self.stats = {}
@@ -177,7 +176,7 @@ class IGCLog:
     def load_from_file(self):
         """Using the object's file_path, load the igc file"""
         self.fixes = []
-        self.header_info, fixes_list, self.footer_info = igc_tools.ingest_igc_file(self.file_path)
+        self.header_info, fixes_list, self.footer_info = ingest_igc_file(self.file_path)
 
         for header in self.header_info:
             if header[0:5] == "HFDTE":
@@ -502,7 +501,7 @@ class IGCLog:
 
         df["cumulative_distance"] = (df["distance_traveled_m_20s"] / 20).cumsum()
 
-    def build_computed_comp_metrics(self, task: xctsk_tools.xctsk):
+    def build_computed_comp_metrics(self, task: xctsk_lib.xctsk):
         """
         Build competition metrics by filtering the dataframe to only include data
         from the task start time to when GOAL is reached, then recalculating cumulative values.
@@ -766,7 +765,7 @@ if __name__ == "__main__":
     if out_file[-4:] == ".kml":
         out_file = out_file[:-4]
 
-    flight_log = igc_tools.IGCLog(in_file)
+    flight_log = igc_lib.IGCLog(in_file)
     if use_name:
         if flight_log.pilot_name is None:
             print("No pilot name found in file, using default filename")

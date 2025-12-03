@@ -2,8 +2,8 @@ import argparse
 import os
 import numpy as np
 import pandas as pd
-from igc_tools import IGCLog
-from xctsk_tools import xctsk
+from igc_lib import IGCLog
+from xctsk_lib import xctsk
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import itertools

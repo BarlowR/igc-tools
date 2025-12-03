@@ -13,8 +13,8 @@ import datetime
 import numpy as np
 import pandas as pd
 
-import igc_tools
-import math_utils
+import igc_lib
+import utils.math_utils as math_utils
 
 
 # ============================================================================
@@ -197,12 +197,12 @@ class TestUtilityFunctions(unittest.TestCase):
     def test_latlon_to_webmercator(self):
         """Test lat/lon to Web Mercator conversion."""
         # Test equator (0, 0)
-        x, y = igc_tools.latlon_to_webmercator(0, 0)
+        x, y = igc_lib.latlon_to_webmercator(0, 0)
         self.assertAlmostEqual(x, 0, places=2)
         self.assertAlmostEqual(y, 0, places=2)
 
         # Test known coordinates (San Francisco: -122.4194, 37.7749)
-        x, y = igc_tools.latlon_to_webmercator(-122.4194, 37.7749)
+        x, y = igc_lib.latlon_to_webmercator(-122.4194, 37.7749)
         self.assertTrue(isinstance(x, (int, float, np.number)))
         self.assertTrue(isinstance(y, (int, float, np.number)))
         self.assertLess(x, 0)  # Western hemisphere
@@ -211,44 +211,44 @@ class TestUtilityFunctions(unittest.TestCase):
     def test_kml_color_gradient_generator(self):
         """Test KML color string generation."""
         # Test black (all zeros)
-        color = igc_tools.kml_color_gradient_generator(1.0, 0, 0, 0)
+        color = igc_lib.kml_color_gradient_generator(1.0, 0, 0, 0)
         self.assertEqual(color, "ff000000")
 
         # Test white (all ones)
-        color = igc_tools.kml_color_gradient_generator(1.0, 1.0, 1.0, 1.0)
+        color = igc_lib.kml_color_gradient_generator(1.0, 1.0, 1.0, 1.0)
         self.assertEqual(color, "ffffffff")
 
         # Test semi-transparent red
-        color = igc_tools.kml_color_gradient_generator(0.5, 1.0, 0, 0)
+        color = igc_lib.kml_color_gradient_generator(0.5, 1.0, 0, 0)
         self.assertEqual(color, "7f0000ff")
 
         # Test format is always 8 characters
-        color = igc_tools.kml_color_gradient_generator(0.3, 0.6, 0.2, 0.9)
+        color = igc_lib.kml_color_gradient_generator(0.3, 0.6, 0.2, 0.9)
         self.assertEqual(len(color), 8)
 
     def test_speed_color_scale(self):
         """Test speed color gradient (turquoise -> blue -> red)."""
         # Test minimum (should be turquoise: r=0, g=1, b=1)
-        r, g, b = igc_tools.speed_color_scale(0.0)
+        r, g, b = igc_lib.speed_color_scale(0.0)
         self.assertEqual(r, 0)
         self.assertEqual(g, 1)
         self.assertEqual(b, 1)
 
         # Test midpoint (should be blue: r=0, g=0, b=1)
-        r, g, b = igc_tools.speed_color_scale(0.5)
+        r, g, b = igc_lib.speed_color_scale(0.5)
         self.assertEqual(r, 0)
         self.assertEqual(g, 0)
         self.assertEqual(b, 1)
 
         # Test maximum (should be red: r=1, g=0, b=0)
-        r, g, b = igc_tools.speed_color_scale(1.0)
+        r, g, b = igc_lib.speed_color_scale(1.0)
         self.assertEqual(r, 1)
         self.assertEqual(g, 0)
         self.assertEqual(b, 0)
 
         # Test all values are in range [0, 1]
         for val in [0.0, 0.25, 0.5, 0.75, 1.0]:
-            r, g, b = igc_tools.speed_color_scale(val)
+            r, g, b = igc_lib.speed_color_scale(val)
             self.assertTrue(0 <= r <= 1)
             self.assertTrue(0 <= g <= 1)
             self.assertTrue(0 <= b <= 1)
@@ -256,26 +256,26 @@ class TestUtilityFunctions(unittest.TestCase):
     def test_thermal_color_scale(self):
         """Test thermal (vertical speed) color gradient."""
         # Test minimum (should be blue)
-        r, g, b = igc_tools.thermal_color_scale(0.0)
+        r, g, b = igc_lib.thermal_color_scale(0.0)
         self.assertEqual(r, 0)
         self.assertEqual(g, 0)
         self.assertEqual(b, 1)
 
         # Test midpoint (should be white)
-        r, g, b = igc_tools.thermal_color_scale(0.5)
+        r, g, b = igc_lib.thermal_color_scale(0.5)
         self.assertEqual(r, 1)
         self.assertEqual(g, 1)
         self.assertEqual(b, 1)
 
         # Test maximum (should be red)
-        r, g, b = igc_tools.thermal_color_scale(1.0)
+        r, g, b = igc_lib.thermal_color_scale(1.0)
         self.assertEqual(r, 1)
         self.assertAlmostEqual(g, 0, places=5)
         self.assertEqual(b, 0)
 
         # Test all values are in range [0, 1]
         for val in [0.0, 0.25, 0.5, 0.75, 1.0]:
-            r, g, b = igc_tools.thermal_color_scale(val)
+            r, g, b = igc_lib.thermal_color_scale(val)
             self.assertTrue(0 <= r <= 1)
             self.assertTrue(0 <= g <= 1)
             self.assertTrue(0 <= b <= 1)
@@ -315,7 +315,7 @@ class TestIngestIGCFile(unittest.TestCase):
 
     def test_ingest_igc_file(self):
         """Test basic IGC file parsing."""
-        header, content, footer = igc_tools.ingest_igc_file(self.igc_file)
+        header, content, footer = igc_lib.ingest_igc_file(self.igc_file)
 
         # Check headers
         self.assertTrue(any('HFDTE' in h for h in header))
@@ -330,7 +330,7 @@ class TestIngestIGCFile(unittest.TestCase):
 
     def test_ingest_igc_file_filters_records(self):
         """Test that E, L, F, K records are filtered out."""
-        _, content, _ = igc_tools.ingest_igc_file(self.igc_file)
+        _, content, _ = igc_lib.ingest_igc_file(self.igc_file)
 
         # Content should only contain B records
         self.assertTrue(all(line[0] == 'B' for line in content))
@@ -348,7 +348,7 @@ class TestBFix(unittest.TestCase):
 
     def test_bfix_creation(self):
         """Test BFix object creation."""
-        fix = igc_tools.BFix()
+        fix = igc_lib.BFix()
         self.assertIsInstance(fix.time, datetime.datetime)
         self.assertEqual(fix.lat, 0)
         self.assertEqual(fix.lon, 0)
@@ -359,7 +359,7 @@ class TestBFix(unittest.TestCase):
     def test_bfix_to_dict(self):
         """Test BFix to_dict method."""
         test_time = datetime.datetime(2025, 2, 5, 10, 12, 0)
-        fix = igc_tools.BFix(
+        fix = igc_lib.BFix(
             time=test_time,
             lat=34.68,
             lon=-119.92,
@@ -407,7 +407,7 @@ class TestIGCLogParsing(unittest.TestCase):
 
     def test_igclog_initialization(self):
         """Test IGCLog object initialization."""
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
 
         self.assertEqual(log.file_path, self.igc_file)
         self.assertIsNotNone(log.header_info)
@@ -418,19 +418,19 @@ class TestIGCLogParsing(unittest.TestCase):
 
     def test_igclog_parse_pilot_name(self):
         """Test pilot name extraction from header."""
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
         self.assertEqual(log.pilot_name, "Test Pilot")
 
     def test_igclog_parse_date(self):
         """Test date parsing from HFDTE header."""
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
         self.assertEqual(log.day.day, 5)
         self.assertEqual(log.day.month, 2)
         self.assertEqual(log.day.year, 2025)
 
     def test_igclog_dataframe_creation(self):
         """Test that dataframe is created with correct structure."""
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
 
         # Check dataframe exists and has data
         self.assertGreater(len(log.dataframe), 0)
@@ -445,7 +445,7 @@ class TestIGCLogParsing(unittest.TestCase):
 
     def test_parse_bfix(self):
         """Test B record parsing."""
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
 
         # Test parsing a B record
         test_line = "B1012003440751N11955269WA0069000732"
@@ -473,7 +473,7 @@ class TestIGCLogParsing(unittest.TestCase):
 
     def test_parse_bfix_southern_western_hemisphere(self):
         """Test B record parsing for southern and western hemispheres."""
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
 
         # Southern hemisphere, Eastern longitude
         test_line = "B1012003440751S11955269EA0069000732"
@@ -519,7 +519,7 @@ class TestIGCLogMetrics(unittest.TestCase):
 
     def test_computed_metrics_columns(self):
         """Test that all expected metric columns are created."""
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
 
         # Check for computed columns
         expected_metrics = [
@@ -538,7 +538,7 @@ class TestIGCLogMetrics(unittest.TestCase):
 
     def test_speed_calculation(self):
         """Test that speed is calculated and reasonable."""
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
 
         # Speed should be positive and reasonable (< 200 km/h for paragliding)
         speeds = log.dataframe['speed_kmh_20s'].dropna()
@@ -548,7 +548,7 @@ class TestIGCLogMetrics(unittest.TestCase):
 
     def test_vertical_speed_calculation(self):
         """Test vertical speed calculation."""
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
 
         # Vertical speed should exist and be in reasonable range
         vspeed = log.dataframe['vertical_speed_ms_5s'].dropna()
@@ -559,7 +559,7 @@ class TestIGCLogMetrics(unittest.TestCase):
 
     def test_category_assignment(self):
         """Test that flight mode categories are assigned."""
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
 
         # Category should be one of the defined categories
         valid_categories = [
@@ -572,7 +572,7 @@ class TestIGCLogMetrics(unittest.TestCase):
 
     def test_glide_ratio_calculation(self):
         """Test glide ratio calculation."""
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
 
         # Glide ratio should be clipped to [-50, 50]
         glide = log.dataframe['glide'].dropna()
@@ -609,7 +609,7 @@ class TestIGCLogExports(unittest.TestCase):
 
     def test_export_gpx(self):
         """Test GPX export."""
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
         gpx_file = os.path.join(self.temp_dir, "test.gpx")
 
         log.export_gpx(gpx_file)
@@ -626,7 +626,7 @@ class TestIGCLogExports(unittest.TestCase):
 
     def test_export_kml_line(self):
         """Test KML line export."""
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
         kml_file = os.path.join(self.temp_dir, "test.kml")
 
         log.export_kml_line(kml_file, track_type="Track", prefix="test_")
@@ -642,7 +642,7 @@ class TestIGCLogExports(unittest.TestCase):
 
     def test_export_tracks(self):
         """Test export_tracks creates both speed and vertical speed KMLs."""
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
         prefix = os.path.join(self.temp_dir, "test")
 
         log.export_tracks(prefix)
@@ -695,10 +695,10 @@ class TestCompetitionMetrics(unittest.TestCase):
 
     def _create_mock_task(self):
         """Create a mock xctsk task object for testing."""
-        import xctsk_tools
+        import xctsk_lib
 
         # Create a mock task manually instead of loading from file
-        task = xctsk_tools.xctsk.__new__(xctsk_tools.xctsk)
+        task = xctsk_lib.xctsk.__new__(xctsk_lib.xctsk)
 
         # Set up task metadata
         task.earth_model = "WGS84"
@@ -710,7 +710,7 @@ class TestCompetitionMetrics(unittest.TestCase):
         task.turnpoints = []
 
         # SSS (Start) at initial position
-        sss = xctsk_tools.xctsk_turnpoint()
+        sss = xctsk_lib.xctsk_turnpoint()
         sss.radius = 400
         sss.type = "SSS"
         sss.lat = 34.0
@@ -720,7 +720,7 @@ class TestCompetitionMetrics(unittest.TestCase):
         task.turnpoints.append(sss)
 
         # Turnpoint 1 - somewhere in the middle
-        tp1 = xctsk_tools.xctsk_turnpoint()
+        tp1 = xctsk_lib.xctsk_turnpoint()
         tp1.radius = 400
         tp1.type = None
         tp1.lat = 34.03
@@ -730,7 +730,7 @@ class TestCompetitionMetrics(unittest.TestCase):
         task.turnpoints.append(tp1)
 
         # GOAL - at a point the flight will reach
-        goal = xctsk_tools.xctsk_turnpoint()
+        goal = xctsk_lib.xctsk_turnpoint()
         goal.radius = 400
         goal.type = "GOAL"
         goal.lat = 34.045  # Flight reaches this around second 90
@@ -743,9 +743,9 @@ class TestCompetitionMetrics(unittest.TestCase):
 
     def test_goal_cropping(self):
         """Test that dataframe is cropped when GOAL is reached."""
-        import xctsk_tools
+        import xctsk_lib
 
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
         task = self._create_mock_task()
 
         # Get original dataframe length
@@ -769,9 +769,9 @@ class TestCompetitionMetrics(unittest.TestCase):
 
     def test_ess_not_reached(self):
         """Test that dataframe is not cropped if GOAL is never reached."""
-        import xctsk_tools
+        import xctsk_lib
 
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
         task = self._create_mock_task()
 
         # Modify ESS to be extremely far away so it's never reached
@@ -788,9 +788,9 @@ class TestCompetitionMetrics(unittest.TestCase):
 
     def test_track_task_progress_columns(self):
         """Test that _track_task_progress adds expected columns."""
-        import xctsk_tools
+        import xctsk_lib
 
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
         task = self._create_mock_task()
 
         # Build competition metrics
@@ -810,9 +810,9 @@ class TestCompetitionMetrics(unittest.TestCase):
 
     def test_completed_status(self):
         """Test that 'COMPLETED' status is set correctly."""
-        import xctsk_tools
+        import xctsk_lib
 
-        log = igc_tools.IGCLog(self.igc_file)
+        log = igc_lib.IGCLog(self.igc_file)
         task = self._create_mock_task()
 
         # Build competition metrics
