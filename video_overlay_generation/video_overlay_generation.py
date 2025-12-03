@@ -161,13 +161,13 @@ def generate_tracklog_overlay_sequence(igc_log, framerate, output_dir, use_task=
     Generate an image sequence showing tracklog progress over time.
 
     Each frame shows the full tracklog in grey with the flown portion in orange.
-    If the IGCLog has a task (set via build_computed_comp_metrics), turnpoints are drawn:
+    If the igclog has a task (set via build_computed_comp_metrics), turnpoints are drawn:
     - Completed turnpoints: White
     - Next turnpoint: Blue
     - Uncompleted turnpoints: Gray
 
     Args:
-        igc_log: IGCLog object with flight data (and optional task)
+        igc_log: igclog object with flight data (and optional task)
         framerate: Target framerate (frames per second)
         output_dir: Directory to save image sequence
 
@@ -175,7 +175,7 @@ def generate_tracklog_overlay_sequence(igc_log, framerate, output_dir, use_task=
         int: Number of frames generated
 
     Example:
-        >>> log = igc_tools.IGCLog("flight.igc")
+        >>> log = igc_tools.igclog("flight.igc")
         >>> num_frames = generate_tracklog_overlay_sequence(log, 30, "./frames")
         >>> print(f"Generated {num_frames} frames")
     """
@@ -186,13 +186,13 @@ def generate_tracklog_overlay_sequence(igc_log, framerate, output_dir, use_task=
     task = igc_log.task if (use_task and hasattr(igc_log, 'task')) else None
     if task is not None:
         if not hasattr(igc_log, 'comp_dataframe') or igc_log.comp_dataframe is None:
-            raise ValueError("Task exists but IGCLog has no comp_dataframe. Run build_competition_metrics() first.")
+            raise ValueError("Task exists but igclog has no comp_dataframe. Run build_competition_metrics() first.")
         df = igc_log.comp_dataframe
     else:
         df = igc_log.dataframe
 
     if len(df) == 0:
-        raise ValueError("IGCLog has no data")
+        raise ValueError("igclog has no data")
 
     # Calculate total flight duration in seconds
     start_time = df.iloc[0]["time_pandas"]
@@ -311,7 +311,7 @@ if __name__ == "__main__":
 
     # Load IGC file
     print(f"Loading IGC file: {args.in_file}")
-    log = igc_lib.IGCLog(args.in_file)
+    log = igc_lib.igclog(args.in_file)
     task = None
     if args.in_task:
         task = xctsk_lib.xctsk(args.in_task)

@@ -2,7 +2,7 @@ import argparse
 import os
 import numpy as np
 import pandas as pd
-from igc_lib import IGCLog
+from igc_lib import igclog
 from xctsk_lib import xctsk
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -27,7 +27,7 @@ class CompetitionFlight():
         self.pilot_list = {}
 
     def add_pilot(self, igc_path):
-        new_pilot = IGCLog(igc_path)
+        new_pilot = igclog(igc_path)
         new_pilot.build_computed_comp_metrics(self.task)
         self.pilot_list[new_pilot.pilot_name] = new_pilot
         print(f"Loaded {new_pilot.pilot_name}")

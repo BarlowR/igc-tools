@@ -30,8 +30,8 @@ def latlon_to_webmercator(lon, lat):
     return x, y
 
 @dataclass
-class BFix:
-    """BFix IGC Data Type
+class bfix:
+    """bfix IGC Data Type
     See https://xp-soaring.github.io/igc_file_format/igc_format_2008.html#link_4.1
     """
 
@@ -155,9 +155,9 @@ def thermal_color_scale(speed):
 
 
 @dataclass
-class IGCLog:
+class igclog:
     def __init__(self, file_path: str):
-        """Build an IGCLog file from a given file path"""
+        """Build an igclog file from a given file path"""
         self.header_info = None
         self.footer_info = None
         self.fixes: None = None
@@ -513,7 +513,7 @@ class IGCLog:
             pandas.DataFrame: A copy of the dataframe filtered from start to GOAL
                              with recalculated cumulative metrics
         """
-        # Store the task in the IGCLog object
+        # Store the task in the igclog object
         self.task = task
         # Extract the first time gate from sss.timeGates
         start_time_str = task.sss['timeGates'][0]
@@ -709,13 +709,13 @@ class IGCLog:
         self.export_kml_line(f"{file_prefix}_vertical_speed.kml", "VerticalSpeed", prefix=file_prefix)
 
     def parse_bfix(self, line: str):
-        """Parse a b fix line to a BFix object
+        """Parse a b fix line to a bfix object
         See https://xp-soaring.github.io/igc_file_format/igc_format_2008.html#link_4.1
         Spec:    B HHMMSS DDMMmmmN DDDMMmmmE V PPPPP GGGGG CK
         Example: B 235531 3440751N 11955269W A 00690 00732 54
         """
 
-        fix = BFix()
+        fix = bfix()
         assert line[0] == "B"
 
         # parse time to datetime
@@ -765,7 +765,7 @@ if __name__ == "__main__":
     if out_file[-4:] == ".kml":
         out_file = out_file[:-4]
 
-    flight_log = igc_lib.IGCLog(in_file)
+    flight_log = igc_lib.igclog(in_file)
     if use_name:
         if flight_log.pilot_name is None:
             print("No pilot name found in file, using default filename")

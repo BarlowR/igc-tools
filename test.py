@@ -3,8 +3,8 @@ Comprehensive test suite for igc_tools module.
 
 Tests all functions and methods in igc_tools.py including:
 - Utility functions (color scales, coordinate conversion, IGC parsing)
-- BFix dataclass
-- IGCLog class (parsing, metrics, exports)
+- bfix dataclass
+- igclog class (parsing, metrics, exports)
 """
 import unittest
 import tempfile
@@ -34,7 +34,7 @@ def create_bfix_line(
     east: bool = False
 ) -> str:
     """
-    Create a properly formatted IGC B-record (BFix) line.
+    Create a properly formatted IGC B-record (bfix) line.
 
     B-record format: B HHMMSS DDMMmmmN/S DDDMMmmmE/W V PPPPP GGGGG
 
@@ -343,12 +343,12 @@ class TestIngestIGCFile(unittest.TestCase):
             self.assertNotEqual(line[0], 'K')
 
 
-class TestBFix(unittest.TestCase):
-    """Test BFix dataclass."""
+class Testbfix(unittest.TestCase):
+    """Test bfix dataclass."""
 
     def test_bfix_creation(self):
-        """Test BFix object creation."""
-        fix = igc_lib.BFix()
+        """Test bfix object creation."""
+        fix = igc_lib.bfix()
         self.assertIsInstance(fix.time, datetime.datetime)
         self.assertEqual(fix.lat, 0)
         self.assertEqual(fix.lon, 0)
@@ -357,9 +357,9 @@ class TestBFix(unittest.TestCase):
         self.assertEqual(fix.gnss_altitude_m, 0)
 
     def test_bfix_to_dict(self):
-        """Test BFix to_dict method."""
+        """Test bfix to_dict method."""
         test_time = datetime.datetime(2025, 2, 5, 10, 12, 0)
-        fix = igc_lib.BFix(
+        fix = igc_lib.bfix(
             time=test_time,
             lat=34.68,
             lon=-119.92,
@@ -379,8 +379,8 @@ class TestBFix(unittest.TestCase):
         self.assertEqual(fix_dict['gnss_altitude_m'], 732)
 
 
-class TestIGCLogParsing(unittest.TestCase):
-    """Test IGCLog class parsing and initialization."""
+class TestigclogParsing(unittest.TestCase):
+    """Test igclog class parsing and initialization."""
 
     def setUp(self):
         """Create a temporary IGC file for testing."""
@@ -406,8 +406,8 @@ class TestIGCLogParsing(unittest.TestCase):
         os.rmdir(self.temp_dir)
 
     def test_igclog_initialization(self):
-        """Test IGCLog object initialization."""
-        log = igc_lib.IGCLog(self.igc_file)
+        """Test igclog object initialization."""
+        log = igc_lib.igclog(self.igc_file)
 
         self.assertEqual(log.file_path, self.igc_file)
         self.assertIsNotNone(log.header_info)
@@ -418,19 +418,19 @@ class TestIGCLogParsing(unittest.TestCase):
 
     def test_igclog_parse_pilot_name(self):
         """Test pilot name extraction from header."""
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
         self.assertEqual(log.pilot_name, "Test Pilot")
 
     def test_igclog_parse_date(self):
         """Test date parsing from HFDTE header."""
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
         self.assertEqual(log.day.day, 5)
         self.assertEqual(log.day.month, 2)
         self.assertEqual(log.day.year, 2025)
 
     def test_igclog_dataframe_creation(self):
         """Test that dataframe is created with correct structure."""
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
 
         # Check dataframe exists and has data
         self.assertGreater(len(log.dataframe), 0)
@@ -445,7 +445,7 @@ class TestIGCLogParsing(unittest.TestCase):
 
     def test_parse_bfix(self):
         """Test B record parsing."""
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
 
         # Test parsing a B record
         test_line = "B1012003440751N11955269WA0069000732"
@@ -473,7 +473,7 @@ class TestIGCLogParsing(unittest.TestCase):
 
     def test_parse_bfix_southern_western_hemisphere(self):
         """Test B record parsing for southern and western hemispheres."""
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
 
         # Southern hemisphere, Eastern longitude
         test_line = "B1012003440751S11955269EA0069000732"
@@ -483,8 +483,8 @@ class TestIGCLogParsing(unittest.TestCase):
         self.assertGreater(fix.lon, 0)  # Eastern hemisphere
 
 
-class TestIGCLogMetrics(unittest.TestCase):
-    """Test IGCLog metrics computation."""
+class TestigclogMetrics(unittest.TestCase):
+    """Test igclog metrics computation."""
 
     def setUp(self):
         """Create a temporary IGC file with enough data for metrics."""
@@ -519,7 +519,7 @@ class TestIGCLogMetrics(unittest.TestCase):
 
     def test_computed_metrics_columns(self):
         """Test that all expected metric columns are created."""
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
 
         # Check for computed columns
         expected_metrics = [
@@ -538,7 +538,7 @@ class TestIGCLogMetrics(unittest.TestCase):
 
     def test_speed_calculation(self):
         """Test that speed is calculated and reasonable."""
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
 
         # Speed should be positive and reasonable (< 200 km/h for paragliding)
         speeds = log.dataframe['speed_kmh_20s'].dropna()
@@ -548,7 +548,7 @@ class TestIGCLogMetrics(unittest.TestCase):
 
     def test_vertical_speed_calculation(self):
         """Test vertical speed calculation."""
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
 
         # Vertical speed should exist and be in reasonable range
         vspeed = log.dataframe['vertical_speed_ms_5s'].dropna()
@@ -559,7 +559,7 @@ class TestIGCLogMetrics(unittest.TestCase):
 
     def test_category_assignment(self):
         """Test that flight mode categories are assigned."""
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
 
         # Category should be one of the defined categories
         valid_categories = [
@@ -572,7 +572,7 @@ class TestIGCLogMetrics(unittest.TestCase):
 
     def test_glide_ratio_calculation(self):
         """Test glide ratio calculation."""
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
 
         # Glide ratio should be clipped to [-50, 50]
         glide = log.dataframe['glide'].dropna()
@@ -581,8 +581,8 @@ class TestIGCLogMetrics(unittest.TestCase):
             self.assertTrue((glide <= 50).all())
 
 
-class TestIGCLogExports(unittest.TestCase):
-    """Test IGCLog export functions."""
+class TestigclogExports(unittest.TestCase):
+    """Test igclog export functions."""
 
     def setUp(self):
         """Create a temporary IGC file for testing exports."""
@@ -609,7 +609,7 @@ class TestIGCLogExports(unittest.TestCase):
 
     def test_export_gpx(self):
         """Test GPX export."""
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
         gpx_file = os.path.join(self.temp_dir, "test.gpx")
 
         log.export_gpx(gpx_file)
@@ -626,7 +626,7 @@ class TestIGCLogExports(unittest.TestCase):
 
     def test_export_kml_line(self):
         """Test KML line export."""
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
         kml_file = os.path.join(self.temp_dir, "test.kml")
 
         log.export_kml_line(kml_file, track_type="Track", prefix="test_")
@@ -642,7 +642,7 @@ class TestIGCLogExports(unittest.TestCase):
 
     def test_export_tracks(self):
         """Test export_tracks creates both speed and vertical speed KMLs."""
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
         prefix = os.path.join(self.temp_dir, "test")
 
         log.export_tracks(prefix)
@@ -745,7 +745,7 @@ class TestCompetitionMetrics(unittest.TestCase):
         """Test that dataframe is cropped when GOAL is reached."""
         import xctsk_lib
 
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
         task = self._create_mock_task()
 
         # Get original dataframe length
@@ -771,7 +771,7 @@ class TestCompetitionMetrics(unittest.TestCase):
         """Test that dataframe is not cropped if GOAL is never reached."""
         import xctsk_lib
 
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
         task = self._create_mock_task()
 
         # Modify ESS to be extremely far away so it's never reached
@@ -790,7 +790,7 @@ class TestCompetitionMetrics(unittest.TestCase):
         """Test that _track_task_progress adds expected columns."""
         import xctsk_lib
 
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
         task = self._create_mock_task()
 
         # Build competition metrics
@@ -812,7 +812,7 @@ class TestCompetitionMetrics(unittest.TestCase):
         """Test that 'COMPLETED' status is set correctly."""
         import xctsk_lib
 
-        log = igc_lib.IGCLog(self.igc_file)
+        log = igc_lib.igclog(self.igc_file)
         task = self._create_mock_task()
 
         # Build competition metrics
