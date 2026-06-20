@@ -14,6 +14,8 @@ COMP_SUBSET = {
     "comp_total_time_climbing_s" : ("least_positive", "Total Climbing (s) "),
     "comp_average_climb_rate" : ("most_positive", "Average Climb Rate (m/s)"),
     "comp_total_meters_climbed" : (None, "Total Meters Climbed (m)"),
+    "comp_thermal_meters_climbed" : (None, "Thermal Meters Climbed (m)"),
+    "comp_glide_meters_climbed" : ("most_positive", "Altitude Gain on Glide (m)"),
     "comp_total_time_stopped_and_climbing_s" : ("least_positive", "Stopped and Climbing (s)"),
     "comp_total_time_stopped_and_not_climbing_s" : ("most_negative", "Stopped and Not Climbing (s)"),
     "comp_total_distance" : ("least_positive", "Total Distance Flown (m)"),
@@ -27,6 +29,7 @@ class CompetitionFlight():
         self.pilot_list = {}
 
     def add_pilot(self, igc_path):
+        print(igc_path)
         new_pilot = igclog(igc_path)
         new_pilot.build_computed_comp_metrics(self.task)
         self.pilot_list[new_pilot.pilot_name] = new_pilot

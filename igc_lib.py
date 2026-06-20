@@ -396,7 +396,9 @@ class igclog:
         self.dataframe = self.dataframe.drop(
             columns=[
                 "seconds_delta",
-                "altitude_gain_m"
+                "altitude_gain_m",
+                "thermal_altitude_gain_m",
+                "glide_altitude_gain_m",
             ]
         )
 
@@ -407,6 +409,8 @@ class igclog:
         df = self.comp_dataframe if comp else self.dataframe
         
         self.stats[f"{prefix}total_meters_climbed"] = 0
+        self.stats[f"{prefix}thermal_meters_climbed"] = 0
+        self.stats[f"{prefix}glide_meters_climbed"] = 0
         self.stats[f"{prefix}average_altitude"] = 0
         self.stats[f"{prefix}total_distance"] = 0
         self.stats[f"{prefix}total_time_climbing_s"] = 0
@@ -434,6 +438,8 @@ class igclog:
             return
 
         self.stats[f"{prefix}total_meters_climbed"] = df["total_meters_climbed"].iloc[-1]
+        self.stats[f"{prefix}thermal_meters_climbed"] = df["thermal_meters_climbed"].iloc[-1]
+        self.stats[f"{prefix}glide_meters_climbed"] = df["glide_meters_climbed"].iloc[-1]
         self.stats[f"{prefix}average_altitude"] = df["gnss_altitude_m"].mean()
         self.stats[f"{prefix}total_distance"] = df.iloc[-1]["cumulative_distance"]
         self.stats[f"{prefix}total_time_climbing_s"] = df.iloc[-1]["cumulative_time_climbing_s"]
@@ -454,7 +460,8 @@ class igclog:
         self.stats[f"{prefix}altitude_>5ms_climb"] = df[df["vertical_speed_ms_5s"] >= 5.5]["vertical_speed_ms_5s"].sum()
         self.stats[f"{prefix}percentage_time_>5ms_climb"] = (self.stats[f"{prefix}seconds_>5ms_climb"] / seconds_climbing) if seconds_climbing else 0
 
-        self.stats[f"{prefix}average_climb_rate"] = (df[df["vertical_speed_ms_5s"] > 0.5]["vertical_speed_ms_5s"].sum() / len(df[df["vertical_speed_ms_5s"] > 0.5])) if len(df[df["vertical_speed_ms_5s"] > 0.5]) > 0 else 0
+        thermal_climbing_df = df[df["stopped_and_climbing"]]
+        self.stats[f"{prefix}average_climb_rate"] = thermal_climbing_df["vertical_speed_ms_5s"].mean() if len(thermal_climbing_df) > 0 else 0
 
         for climb_rate in range(1, 6):
             self.stats[f"{prefix}seconds_{climb_rate}ms_climb"] = len(df[(df["vertical_speed_ms_5s"] >= (climb_rate - 0.5)) & (df["vertical_speed_ms_5s"] < (climb_rate + 0.5))])
@@ -488,6 +495,14 @@ class igclog:
         # Calculate cumulative altitude metrics
         df["total_meters_climbed"] = df["altitude_gain_m"].cumsum()
         df["total_meters_lost"] = df["altitude_loss_m"].cumsum()
+
+        # Thermal-only altitude gain (stopped_and_climbing rows only)
+        df["thermal_altitude_gain_m"] = df["altitude_gain_m"].where(df["stopped_and_climbing"], 0)
+        df["thermal_meters_climbed"] = df["thermal_altitude_gain_m"].cumsum()
+
+        # Altitude gained while on glide (climbing_on_glide rows only)
+        df["glide_altitude_gain_m"] = df["altitude_gain_m"].where(df["climbing_on_glide"], 0)
+        df["glide_meters_climbed"] = df["glide_altitude_gain_m"].cumsum()
 
         # Calculate cumulative time spent in each category
         df["stopped_and_not_climbing_s"] = df["stopped_and_not_climbing"].cumsum()
@@ -548,8 +563,8 @@ class igclog:
         # Recalculate cumulative metrics from the start of the competition window
         self._calculate_cumulative_metrics(self.comp_dataframe)
 
-        # Remove the temporary altitude_gain_m column to match main dataframe
-        self.comp_dataframe = self.comp_dataframe.drop(columns=["altitude_gain_m"])
+        # Remove the temporary altitude columns to match main dataframe
+        self.comp_dataframe = self.comp_dataframe.drop(columns=["altitude_gain_m", "thermal_altitude_gain_m", "glide_altitude_gain_m"])
 
         # Track progress around the task
         self._track_task_progress(self.comp_dataframe, task)
