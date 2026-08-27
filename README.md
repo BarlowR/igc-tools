@@ -1,5 +1,7 @@
 # ICG Tools
-#### Rob Barlow, 2024-06
+
+#### I have ported nearly all of the analysis functions from the comp_analysis script to [Outclimb.app](Outclimb.app). Check it out!
+
 #### Last Updated: 2025-12-03
 
 This library provides a number of functions for for working with .igc and .xctsk files. These files are used for paragliding tracklog recording and competion tasks (respectively). 
